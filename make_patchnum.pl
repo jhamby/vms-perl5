@@ -161,7 +161,7 @@ elsif ($git_patch_file = read_file(".git_patch") and $git_patch_file !~ /\A\$For
     $extra_info .= "git_snapshot_date='$commit_date'\n";
     $commit_title = "Snapshot of:";
 }
-elsif (-d "$srcdir/.git") {
+elsif (-d "$srcdir/.git" and $^O ne 'VMS') {
     ($branch) = backtick("git symbolic-ref -q HEAD") =~ m#^refs/heads/(.+)$#;
     $branch //= "";
     my ($remote,$merge);
