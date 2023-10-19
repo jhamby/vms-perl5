@@ -1294,15 +1294,13 @@ $ vms_cc_dflt = ""
 $ vms_cc_available = ""
 $!
 $ OPEN/WRITE CONFIG ccvms.c
-$ WRITE CONFIG "#ifdef __DECC"
 $ WRITE CONFIG "#include <stdlib.h>"  !DECC is sooo picky
-$ WRITE CONFIG "#endif"
 $ WRITE CONFIG "#include <stdio.h>"
 $ WRITE CONFIG "int main() {"
 $ WRITE CONFIG "#ifdef __DECC"
 $ WRITE CONFIG "        printf(""/DECC\n"");"
 $ WRITE CONFIG "#endif"
-$ WRITE CONFIG "        exit(0);"
+$ WRITE CONFIG "        exit(EXIT_SUCCESS);"
 $ WRITE CONFIG "}"
 $ CLOSE CONFIG
 $!
@@ -1340,15 +1338,17 @@ $ THEN
 $!
 $ echo "Checking for CXX..."
 $ OPEN/WRITE CONFIG ccvms.c
+$ WRITE CONFIG "#include <stdlib.h>"
 $ WRITE CONFIG "#include <iostream>"
+$ WRITE CONFIG "using namespace std;"
 $ WRITE CONFIG "int main() {"
 $ WRITE CONFIG "#ifdef __DECCXX"
-$ WRITE CONFIG "        cout << __DECCXX, endl;"
+$ WRITE CONFIG "        cout << __DECCXX << endl;"
 $ WRITE CONFIG "#else"
-$ WRITE CONFIG "        cout << 0,endl;"
+$ WRITE CONFIG "        cout << 0 << endl;"
 $ WRITE CONFIG "#endif"
 $! Todo: add G++ identifier check ??
-$ WRITE CONFIG "        return(0);"
+$ WRITE CONFIG "        return(EXIT_SUCCESS);"
 $ WRITE CONFIG "}"
 $ CLOSE CONFIG
 $ SET NOON
@@ -1488,7 +1488,7 @@ $   WRITE CONFIG "#else"
 $   WRITE CONFIG "        printf(""%i\n"", ""1"");"
 $   WRITE CONFIG "#endif"
 $   WRITE CONFIG "#endif"
-$   WRITE CONFIG "        exit(0);"
+$   WRITE CONFIG "        exit(EXIT_SUCCESS);"
 $   WRITE CONFIG "}"
 $   CLOSE CONFIG
 $   SET NOON
@@ -1526,14 +1526,17 @@ $Cxx_Version_check:
 $ IF ccname .EQS. "CXX"
 $ THEN
 $   OPEN/WRITE CONFIG cxxvers.c
+$   WRITE CONFIG "#include <stdlib.h>"
 $   WRITE CONFIG "#include <stdio.h>"
 $   WRITE CONFIG "int main() {"
 $   WRITE CONFIG "#ifdef __DECCXX_VER"
 $   WRITE CONFIG "        printf(""%i\n"", __DECCXX_VER);"
+$   WRITE CONFIG "#elif defined(__clang_version__)"
+$   WRITE CONFIG "        printf(""%s\n"", __clang_version__);"
 $   WRITE CONFIG "#else"
 $   WRITE CONFIG "        printf(""%i\n"", ""0"");"
 $   WRITE CONFIG "#endif"
-$   WRITE CONFIG "        return(0);"
+$   WRITE CONFIG "        return(EXIT_SUCCESS);"
 $   WRITE CONFIG "}"
 $   CLOSE CONFIG
 $   SET NOON
@@ -1568,8 +1571,14 @@ $   echo "You are using CXX ''line'"
 $   cxxversion = line
 $   ccversion = line
 $   d_cplusplus = "define"
-$   echo4 "adding /NOANSI_ALIAS qualifier to ccflags."
-$   ccflags = ccflags + "/NOANSI_ALIAS"
+$   echo4 "adding /NOANSI_ALIAS/NoExceptions qualifier to ccflags."
+$   ccflags = ccflags + "/NOANSI_ALIAS/NoExceptions"
+$   IF (F$ELEMENT(0, "-", archname).EQS."VMS_x86_64")
+$   THEN
+$!    Force 64-bit pointers on x86 C++
+$     echo4 "adding /Pointer=64=argv/Opt=(Lev=3) qualifier to ccflags for Clang."
+$     ccflags = ccflags + "/Pointer=64=argv/Opt=(Lev=3)"
+$   ENDIF
 $   CALL Cxx_demangler_cleanup
 $ ELSE
 $   d_cplusplus = "undef"
@@ -1975,6 +1984,13 @@ $ echo "If this does not make any sense to you, just accept the default '" + boo
 $ rp = "Try to use long doubles, if available? [''bool_dflt'] "
 $ GOSUB myread
 $ uselongdouble = ans
+$ IF uselongdouble .OR. uselongdouble .EQS. "define"
+$ THEN
+$   ccflags = ccflags + "/l_double=128"
+$ ELSE
+$!  Note: x86 C compiler crashes when default 128-bit long double is used
+$   ccflags = ccflags + "/l_double=64"
+$ ENDIF
 $!
 $!
 $ IF usesitecustomize .OR. usesitecustomize .eqs. "define" 
@@ -2136,7 +2152,7 @@ $ rp = "What is your architecture name? [''archname'] "
 $ GOSUB myread
 $ IF ans.NES.""
 $ THEN
-$   ans = F$EDIT(ans,"COLLAPSE, UPCASE")
+$   ans = F$EDIT(ans,"COLLAPSE")
 $   IF (ans.NES.archname) !.AND.knowitall
 $   THEN
 $     echo4 "I'll go with ''archname' anyway..."
@@ -2200,7 +2216,6 @@ $     echo4 "...and architecture name already has -ld."
 $   ENDIF
 $ ENDIF
 $!
-$ bool_dflt = "n"
 $ vms_prefix = "perl_root"
 $ vms_prefixup = F$EDIT(vms_prefix,"UPCASE")
 $!
@@ -2977,11 +2992,24 @@ $   Checkcc := "''Mcc'/prefix=all"
 $ ELSE
 $   IF ccname .EQS. "CXX"
 $   THEN
-$     Checkcc := cxx
+$     Checkcc := "cxx/NoExceptions"
+$     IF (F$ELEMENT(0, "-", archname).EQS."VMS_x86_64")
+$     THEN
+$!      Force 64-bit argv on x86
+$       Checkcc = "''Checkcc'" + "/Pointer=64=argv/Opt=(Lev=3)"
+$     ENDIF
 $   ELSE
 $     Checkcc := "''Mcc'"
 $   ENDIF
 $ ENDIF
+$! Note: x86 C compiler crashes when default 128-bit long double is used
+$ IF uselongdouble .OR. uselongdouble .EQS. "define"
+$ THEN
+$   Checkcc = Checkcc + "/l_double=128"
+$ ELSE
+$   Checkcc = Checkcc + "/l_double=64"
+$ ENDIF
+$!
 $ ccflags = ccflags + extra_flags
 $ IF be_case_sensitive
 $ THEN
@@ -3261,14 +3289,12 @@ $!
 $type_size_check: 
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "printf(""%d\n"", sizeof(''tmp'));"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB compile
@@ -3278,15 +3304,13 @@ $!: locate header file
 $findhdr:
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "#include <''tmp'>"
 $ WS "int main()"
 $ WS "{"
 $ WS "printf(""define\n"");"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB link_ok
@@ -3367,9 +3391,7 @@ $!
 $! Check for __STDC__
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
@@ -3380,7 +3402,7 @@ $ WS "printf(""42\n"");"
 $ WS "#else"
 $ WS "printf(""1\n"");"
 $ WS "#endif"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB compile
@@ -3402,15 +3424,12 @@ $!
 $! Check for long double size
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
-$ WS "#pragma message disable ALL"  ! VAX compilers may have distracting informationals
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "printf(""%d\n"", sizeof(long double));"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ echo4 "Checking to see if you have long double..."
@@ -3429,10 +3448,18 @@ $   echo "You have long double."
 $   echo4 "Checking to see how big your long doubles are..."
 $   GOSUB just_mcr_it
 $   longdblsize = tmp
-$   longdblkind = "1"
-$   longdblinfbytes="0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x7f"
-$   longdblnanbytes="0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff"
-$   longdblmantbits="112"
+$   IF longdblsize .EQ. 8	! for x86 "/l_double=64"
+$   THEN
+$     longdblkind = "0"
+$     longdblinfbytes="0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x7f"
+$     longdblnanbytes="0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x7f"
+$     longdblmantbits="52"
+$   ELSE
+$     longdblkind = "1"
+$     longdblinfbytes="0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x7f"
+$     longdblnanbytes="0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff"
+$     longdblmantbits="112"
+$   ENDIF
 $   d_longdbl = "define"
 $   echo "Your long doubles are ''longdblsize' bytes long."
 $ ENDIF
@@ -3470,14 +3497,12 @@ $ sSCNfldbl = sPRIfldbl ! expect consistency
 $!
 $!: check for long long
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "printf(""%d\n"", sizeof(long long));"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ echo4 "Checking to see if you have long long..."
@@ -3500,15 +3525,13 @@ $! Check the prototype for getgid
 $!
 $ echo "Looking for the type for group ids returned by getgid()."
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "#include <types.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "gid_t foo;"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB compile_ok
@@ -3526,15 +3549,13 @@ $! Check to see if we've got dev_t
 $!
 $ echo "Looking for the type for dev."
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "#include <types.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "dev_t foo;"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB compile_ok
@@ -3567,11 +3588,12 @@ $!
 $ IF i_unistd .EQS. "define"
 $ THEN
 $   OS
+$   WS "#include <stdlib.h>"
 $   WS "#include <stdio.h>"
 $   WS "#include <unistd.h>"
 $   WS "int main() {"
 $   WS "printf(""%d\n"",getppid());"
-$   WS "return(0);"
+$   WS "return(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "getppid"
@@ -3604,9 +3626,7 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   WS "#include <types.h>"
 $   IF i_unistd .EQS. "define" THEN WS "#include <unistd.h>"
@@ -3618,7 +3638,7 @@ $   WS "fd_set *foo;"
 $   WS "int bar;"
 $   WS "foo = NULL;"
 $   WS "bar = select(2, foo, foo, foo, NULL);"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   GOSUB compile_ok
@@ -3640,9 +3660,7 @@ $! Check to see if fd_set exists
 $!
 $ echo "Checking to see how well your C compiler handles fd_set and friends ..."
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "#include <types.h>"
 $ IF Has_Dec_C_Sockets
@@ -3654,7 +3672,7 @@ $ WS "int main()"
 $ WS "{"
 $ WS "fd_set *foo;"
 $ WS "int bar;"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB compile_ok
@@ -3684,9 +3702,7 @@ $! Check to see if off64_t exists
 $!
 $ echo4 "Checking to see if you have off64_t..."
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "#include <types.h>"
 $ WS "#''i_inttypes' IIH"
@@ -3696,7 +3712,7 @@ $ WS "#endif"
 $ WS "int main()"
 $ WS "{"
 $ WS "off64_t bar;"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB compile_ok
@@ -3712,14 +3728,12 @@ $!
 $! Check to see if fpclassify exists
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <math.h>"
 $ WS "int main()"
 $ WS "{"
-$ WS "if (fpclassify(0.0) == FP_ZERO) exit(0);"
-$ WS "exit(1);"
+$ WS "if (fpclassify(0.0) == FP_ZERO) exit(EXIT_SUCCESS);"
+$ WS "exit(EXIT_FAILURE);"
 $ WS "}"
 $ CS
 $ tmp = "fpclassify"
@@ -3730,9 +3744,7 @@ $! Check to see if fpos64_t exists
 $!
 $ echo4 "Checking to see if you have fpos64_t..."
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "#include <types.h>"
 $ WS "#''i_inttypes' IIH"
@@ -3742,7 +3754,7 @@ $ WS "#endif"
 $ WS "int main()"
 $ WS "{"
 $ WS "fpos64_t bar;"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB compile_ok
@@ -3759,9 +3771,7 @@ $! Check to see if int64_t exists
 $!
 $ echo4 "Checking to see if you have int64_t..."
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "#include <types.h>"
 $ WS "#''i_inttypes' IIH"
@@ -3771,7 +3781,7 @@ $ WS "#endif"
 $ WS "int main()"
 $ WS "{"
 $ WS "int64_t bar;"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB compile_ok
@@ -3787,12 +3797,13 @@ $!
 $! Check to see if fseeko exists
 $!
 $ OS
+$ WS "#include <stdlib.h>"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "FILE *f=NULL;"
 $ WS "fseeko(f,(off_t)0,SEEK_SET);"
-$ WS "return(0);"
+$ WS "return(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "fseeko"
@@ -3802,12 +3813,13 @@ $!
 $! Check to see if ftello exists
 $!
 $ OS
+$ WS "#include <stdlib.h>"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "FILE *f=NULL; off_t o=0;"
 $ WS "o=ftello(f);"
-$ WS "return(0);"
+$ WS "return(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "ftello"
@@ -3826,16 +3838,14 @@ $! Check for h_errno
 $!
 $ echo4 "Checking to see if you have h_errno..."
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ IF i_unistd .EQS. "define" THEN WS "#include <unistd.h>"
 $ IF i_netdb  .EQS. "define" THEN WS "#include <netdb.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "h_errno = 3;"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB link_ok
@@ -3853,9 +3863,7 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   WS "#include <types.h>"
 $   WS "#include <time.h>"
@@ -3866,7 +3874,7 @@ $   WS "char name[100];"
 $   WS "int bar, baz;"
 $   WS "bar = 100;"
 $   WS "baz = gethostname(name, bar);"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   GOSUB link_ok
@@ -3952,15 +3960,13 @@ $!
 $! Check for fcntl
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "#include <fcntl.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "fcntl(1,2,3);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "fcntl"
@@ -3975,9 +3981,7 @@ $ IF d_fcntl .EQS. "define"
 $ THEN
 $   OS
 $   WS "#include <stdio.h>"
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <fcntl.h>"
 $   WS "#include <unistd.h>"
 $   WS "int main() {"
@@ -4051,8 +4055,8 @@ $ WS "#include <stdlib.h>"
 $ WS "#include <math.h>"
 $ WS "int main()"
 $ WS "{"
-$ WS "  long double x = NaN;
-$ WS "  return isnanl(x) ? EXIT_SUCCESS : EXIT_FAILURE;
+$ WS "  long double x = NAN;"
+$ WS "  return isnanl(x) ? EXIT_SUCCESS : EXIT_FAILURE;"
 $ WS "}"
 $ CS
 $ tmp = "isnanl"
@@ -4066,8 +4070,8 @@ $ WS "#include <stdlib.h>"
 $ WS "#include <math.h>"
 $ WS "int main()"
 $ WS "{"
-$ WS "  long long x = llrint(1.5);
-$ WS "  return x == 2 ? EXIT_SUCCESS : EXIT_FAILURE;
+$ WS "  long long x = llrint(1.5);"
+$ WS "  return x == 2 ? EXIT_SUCCESS : EXIT_FAILURE;"
 $ WS "}"
 $ CS
 $ tmp = "llrint"
@@ -4081,8 +4085,8 @@ $ WS "#include <stdlib.h>"
 $ WS "#include <math.h>"
 $ WS "int main()"
 $ WS "{"
-$ WS "  long long x = llrintl(1.5);
-$ WS "  return x == 2 ? EXIT_SUCCESS : EXIT_FAILURE;
+$ WS "  long long x = llrintl(1.5);"
+$ WS "  return x == 2 ? EXIT_SUCCESS : EXIT_FAILURE;"
 $ WS "}"
 $ CS
 $ tmp = "llrintl"
@@ -4096,8 +4100,8 @@ $ WS "#include <stdlib.h>"
 $ WS "#include <math.h>"
 $ WS "int main()"
 $ WS "{"
-$ WS "  long long x = llround(1.5);
-$ WS "  return x == 2 ? EXIT_SUCCESS : EXIT_FAILURE;
+$ WS "  long long x = llround(1.5);"
+$ WS "  return x == 2 ? EXIT_SUCCESS : EXIT_FAILURE;"
 $ WS "}"
 $ CS
 $ tmp = "llround"
@@ -4111,8 +4115,8 @@ $ WS "#include <stdlib.h>"
 $ WS "#include <math.h>"
 $ WS "int main()"
 $ WS "{"
-$ WS "  long long x = llroundl(1.5);
-$ WS "  return x == 2 ? EXIT_SUCCESS : EXIT_FAILURE;
+$ WS "  long long x = llroundl(1.5);"
+$ WS "  return x == 2 ? EXIT_SUCCESS : EXIT_FAILURE;"
 $ WS "}"
 $ CS
 $ tmp = "llroundl"
@@ -4126,8 +4130,8 @@ $ WS "#include <stdlib.h>"
 $ WS "#include <math.h>"
 $ WS "int main()"
 $ WS "{"
-$ WS "  double x = llroundl(1.5);
-$ WS "  return x == 2.0 ? EXIT_SUCCESS : EXIT_FAILURE;
+$ WS "  double x = llroundl(1.5);"
+$ WS "  return x == 2.0 ? EXIT_SUCCESS : EXIT_FAILURE;"
 $ WS "}"
 $ CS
 $ tmp = "nearbyint"
@@ -4141,8 +4145,8 @@ $ WS "#include <stdlib.h>"
 $ WS "#include <math.h>"
 $ WS "int main()"
 $ WS "{"
-$ WS "  double x = round(1.5);
-$ WS "  return x == 2.0 ? EXIT_SUCCESS : EXIT_FAILURE;
+$ WS "  double x = round(1.5);"
+$ WS "  return x == 2.0 ? EXIT_SUCCESS : EXIT_FAILURE;"
 $ WS "}"
 $ CS
 $ tmp = "round"
@@ -4156,8 +4160,8 @@ $ WS "#include <stdlib.h>"
 $ WS "#include <math.h>"
 $ WS "int main()"
 $ WS "{"
-$ WS "  double x = scalbn(1.0, 3);
-$ WS "  return x == 8.0 ? EXIT_SUCCESS : EXIT_FAILURE;
+$ WS "  double x = scalbn(1.0, 3);"
+$ WS "  return x == 8.0 ? EXIT_SUCCESS : EXIT_FAILURE;"
 $ WS "}"
 $ CS
 $ tmp = "scalbn"
@@ -4171,8 +4175,8 @@ $ WS "#include <stdlib.h>"
 $ WS "#include <math.h>"
 $ WS "int main()"
 $ WS "{"
-$ WS "  long double x = scalbn(1.0, 3);
-$ WS "  return x == 8.0 ? EXIT_SUCCESS : EXIT_FAILURE;
+$ WS "  long double x = scalbn(1.0, 3);"
+$ WS "  return x == 8.0 ? EXIT_SUCCESS : EXIT_FAILURE;"
 $ WS "}"
 $ CS
 $ tmp = "scalbnl"
@@ -4182,15 +4186,13 @@ $!
 $! Check for memrchr
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <string.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "char * place;"
 $ WS "place = (char *)memrchr(""foo"", 47, 3);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "memrchr"
@@ -4200,15 +4202,13 @@ $!
 $! Check for strnlen
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <string.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "size_t len;"
 $ WS "len = strnlen(""foot"", 3);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "strnlen"
@@ -4218,15 +4218,13 @@ $!
 $! Check for strtoull
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <string.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "unsigned __int64 result;"
 $ WS "result = strtoull(""123123"", NULL, 10);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "strtoull"
@@ -4236,15 +4234,13 @@ $!
 $! Check for strtouq
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <string.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "unsigned __int64 result;"
 $ WS "result = strtouq(""123123"", NULL, 10);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "strtouq"
@@ -4254,15 +4250,13 @@ $!
 $! Check for strtoll
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <string.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "__int64 result;"
 $ WS "result = strtoll(""123123"", NULL, 10);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "strtoll"
@@ -4272,15 +4266,13 @@ $!
 $! Check for strtoq
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <string.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "__int64 result;"
 $ WS "result = strtoq(""123123"", NULL, 10);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "strtoq"
@@ -4290,15 +4282,13 @@ $!
 $! Check for strtold
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <string.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "long double result;"
 $ WS "result = strtold(""123123"", NULL);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "strtold"
@@ -4308,15 +4298,13 @@ $!
 $! Check for atoll
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <string.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS " __int64 result;"
 $ WS "result = atoll(""123123"");"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "atoll"
@@ -4326,15 +4314,13 @@ $!
 $! Check for atolf
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <string.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "long double"
 $ WS "result = atolf(""123123"");"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "atolf"
@@ -4344,31 +4330,28 @@ $!
 $! Check for access
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
+$ WS "#include <unistd.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "access(""foo"", F_OK);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
-$ tmp = "acess"
+$ tmp = "access"
 $ GOSUB inlibc
 $ d_access = tmp
 $!
 $! Check for mkostemp
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "mkostemp(""foo"", 0);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "mkostemp"
@@ -4378,14 +4361,12 @@ $!
 $! Check for mkstemp
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "mkstemp(""foo"");"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "mkstemp"
@@ -4395,14 +4376,12 @@ $!
 $! Check for mkstemps
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "mkstemps(""foo"", 1);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "mkstemps"
@@ -4412,14 +4391,12 @@ $!
 $! Check for mkdtemp
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "mkdtemp(""foo"");"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "mkdtemp"
@@ -4431,15 +4408,13 @@ $!
 $ if i_poll .eqs. "define"
 $ then
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <poll.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "struct pollfd pfd;"
 $   WS "int count=poll(&pfd,1,0);"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "poll"
@@ -4452,9 +4427,7 @@ $!
 $! Check for setvbuf
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
@@ -4462,7 +4435,7 @@ $ WS "FILE *foo;"
 $ WS "char Buffer[99];"
 $ WS "foo = fopen(""foo"", ""r"");"
 $ WS "setvbuf(foo, Buffer, 0, 0);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "setvbuf"
@@ -4472,16 +4445,10 @@ $!
 $! Check for the shm* routines.
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "#include <sys/shm.h>"
 $ WS "#include <sys/stat.h>"
-$ WS "int shmget(key_t key, size_t size, int shmflg);"
-$ WS "void* shmat(int shmid,const void *shmaddr,int shmflg);"
-$ WS "int shmctl(int shmid,  int cmd, struct shmid_ds *buf);"
-$ WS "int shmdt(const void *shmaddr);"
 $ WS "int main() {"
 $ WS "int shm_id = shmget(IPC_PRIVATE, 8, S_IRWXU);"
 $ WS "if (shm_id == -1) printf(""0\n""); else printf (""1\n"");"
@@ -4510,14 +4477,12 @@ $!
 $! Check for setenv
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "setenv(""FOO"", ""BAR"", 0);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "setenv"
@@ -4527,14 +4492,12 @@ $!
 $! Check for setproctitle
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "setproctitle(""%s"", ""FOO"");"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "setproctitle"
@@ -4591,15 +4554,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "endhostent();"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "endhostent"
@@ -4614,15 +4575,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "endnetent();"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "endnetent"
@@ -4637,15 +4596,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "endprotoent();"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "endprotoent"
@@ -4660,15 +4617,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "endservent();"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "endservent"
@@ -4683,15 +4638,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "sethostent(1);"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "sethostent"
@@ -4706,15 +4659,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "setnetent(1);"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "setnetent"
@@ -4729,15 +4680,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "setprotoent(1);"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "setprotoent"
@@ -4752,15 +4701,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "setservent(1);"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "setservent"
@@ -4775,15 +4722,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "gethostent();"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "gethostent"
@@ -4798,15 +4743,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "getnetent();"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "getnetent"
@@ -4821,15 +4764,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "getprotoent();"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "getprotoent"
@@ -4844,15 +4785,13 @@ $!
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "getservent();"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "getservent"
@@ -4869,9 +4808,7 @@ $ echo4 "Checking the availability of sa_len in the sockaddr struct ..."
 $ IF Has_Dec_C_Sockets
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#define _SOCKADDR_LEN"
 $   WS "#include <types.h>"
 $   WS "#include <socket.h>"
@@ -4929,14 +4866,12 @@ $!
 $! Check for nanosleep
 $!
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <time.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "int asleep = nanosleep(NULL,NULL);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "nanosleep"
@@ -4949,15 +4884,13 @@ $ IF Has_Dec_C_Sockets
 $ THEN
 $   echo4 "Checking to see if you have socklen_t..."
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <stdio.h>"
 $   IF i_netdb .EQS. "define" THEN WS "#include <netdb.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "socklen_t x = 16;"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   GOSUB link_ok
@@ -4978,15 +4911,13 @@ $!
 $ IF use_threads
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <pthread.h>"
 $   WS "#include <stdio.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "pthread_yield();"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "pthread_yield"
@@ -5001,15 +4932,13 @@ $!
 $ IF use_threads
 $ THEN
 $   OS
-$   WS "#if defined(__DECC) || defined(__DECCXX)"
 $   WS "#include <stdlib.h>"
-$   WS "#endif"
 $   WS "#include <pthread.h>"
 $   WS "#include <stdio.h>"
 $   WS "int main()"
 $   WS "{"
 $   WS "sched_yield();"
-$   WS "exit(0);"
+$   WS "exit(EXIT_SUCCESS);"
 $   WS "}"
 $   CS
 $   tmp = "sched_yield"
@@ -5033,16 +4962,14 @@ $! Check for generic pointer size
 $!
 $ echo4 "Checking to see how big your pointers are..." 
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "int foo;"
 $ WS "foo = sizeof(char *);"
 $ WS "printf(""%d\n"", foo);"
-$ WS "exit(0);"
+$ WS "exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ tmp = "char *"
@@ -5064,11 +4991,12 @@ $!
 $ off_t_size = 4
 $ OS
 $ WS "#define _LARGEFILE"
+$ WS "#include <stdlib.h>"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
 $ WS "{"
 $ WS "printf(""%d\n"", sizeof(off_t));"
-$ WS "return(0);"
+$ WS "return(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB link_ok
@@ -5091,17 +5019,15 @@ $ st_ino_size = 4
 $ OS
 $ WS "#include <sys/stat.h>"
 $ WS "#include <stdio.h>"
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
-$ WS "#include <stdlib.h>
-$ WS "#endif"
-$ WS "int main() {
+$ WS "#include <stdlib.h>"
+$ WS "int main() {"
 $ WS "#''uselargefiles' _LARGEFILE"
 $ WS "#ifdef _LARGEFILE"
 $ WS "    printf(""%d\n"", sizeof(__ino64_t));"
 $ WS "#else"
 $ WS "    printf(""%d\n"", sizeof(unsigned short)*3);"
 $ WS "#endif"
-$ WS "    exit(0);"
+$ WS "    exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB link_ok
@@ -5157,7 +5083,7 @@ $      WS "int main()"
 $      WS "{"
 $      WS "char result[255];"
 $      WS "realpath(""foo"",result);"
-$      WS "exit(0);"
+$      WS "exit(EXIT_SUCCESS);"
 $      WS "}"
 $      CS
 $      GOSUB link_ok
@@ -5372,16 +5298,16 @@ $!: see if tzname[] exists
 $ OS
 $ WS "#include <stdio.h>"
 $ WS "#include <time.h>"
-$ WS "int main() { extern short tzname[]; printf(""%hd"", tzname[0]); }"
+$ WS "int main() { printf(""%s"", tzname[0]); }"
 $ CS
 $ GOSUB compile_ok
 $ IF compile_status .EQ. good_compile
 $ THEN
-$   d_tzname = "undef"
-$   echo4 "tzname[] NOT found."
-$ ELSE
 $   d_tzname = "define"
 $   echo4 "tzname[] found."
+$ ELSE
+$   d_tzname = "undef"
+$   echo4 "tzname[] NOT found."
 $ ENDIF
 $ IF F$SEARCH("try.obj") .NES. "" THEN DELETE/NOLOG/NOCONFIRM try.obj;
 $!
@@ -5452,7 +5378,12 @@ $   d_gethostprotos="define"
 $   d_getnetprotos="define"
 $   d_getprotoprotos="define"
 $   d_getservprotos="define"
-$   socksizetype="size_t"
+$   if (d_socklen_t .EQS. "define")
+$   then
+$     socksizetype="socklen_t"
+$   else
+$     socksizetype="size_t"
+$   endif
 $ ELSE
 $   d_vms_do_sockets="undef"
 $   d_htonl="undef"
@@ -5584,9 +5515,7 @@ $!
 $ d_nv_preserves_uv = "undef"
 $ echo4 "Checking how many bits of your UVs your NVs can preserve..."
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <stdio.h>"
 $ WS "int main() {"
 $ WS "    ''uvtype' u = 0;"
@@ -5598,7 +5527,7 @@ $ WS "      if ((''uvtype')(''nvtype')u != u)"
 $ WS "        break;"
 $ WS "    }"
 $ WS "    printf(""%d\n"", i);"
-$ WS "    exit(0);"
+$ WS "    exit(EXIT_SUCCESS);"
 $ WS "}"
 $ CS
 $ GOSUB compile
@@ -5615,6 +5544,7 @@ $!
 $ nv_overflows_integers_at = "0"
 $ echo4 "Checking to find the largest integer value your NVs can hold..."
 $ OS
+$ WS "#include <stdlib.h>"
 $ WS "#include <stdio.h>"
 $ WS ""
 $ WS "typedef ''nvtype' NV;"
@@ -5638,7 +5568,7 @@ $ WS "      fprintf(stderr,"
 $ WS "              ""Inconsistency - up %d %f; down %d %f; for 2**%d (%.20f)\n"","
 $ WS "              up_good, (double) got_up, down_good, (double) got_down,"
 $ WS "              count, (double) value);"
-$ WS "      return 1;"
+$ WS "      return EXIT_FAILURE;"
 $ WS "    }"
 $ WS "    if (!up_good) {"
 $ WS "      while (1) {"
@@ -5651,7 +5581,7 @@ $ WS "          fputs(""2.0"", stdout);"
 $ WS "        }"
 $ WS "        if (!count) {"
 $ WS "          puts("""");"
-$ WS "          return 0;"
+$ WS "          return EXIT_SUCCESS;"
 $ WS "        }"
 $ WS "        fputs(""*"", stdout);"
 $ WS "      }"
@@ -5661,7 +5591,7 @@ $ WS "    ++count;"
 $ WS "  }"
 $ WS "  fprintf(stderr, ""Cannot overflow integer range, even at 2**%d (%.20f)\n"","
 $ WS "          count, (double) value);"
-$ WS "  return 1;"
+$ WS "  return EXIT_FAILURE;"
 $ WS "}"
 $ CS
 $ GOSUB compile
@@ -5683,9 +5613,7 @@ $! Check for signbit (must already know nvtype)
 $!
 $ echo4 "Checking to see if you have signbit() available to work on ''nvtype'..."
 $ OS
-$ WS "#if defined(__DECC) || defined(__DECCXX)"
 $ WS "#include <stdlib.h>"
-$ WS "#endif"
 $ WS "#include <fp.h>"
 $ WS "#include <stdio.h>"
 $ WS "int main()"
@@ -5708,16 +5636,24 @@ $     d_signbit = "undef"
 $     echo4 "Nope."
 $ ENDIF
 $!
-$ echo4 "Checking if kill() uses SYS$FORCEX, can't be called from a signal handler,"
+$ echo4 "Checking if __posix_kill() uses SYS$FORCEX, can't be called from a signal handler,"
 $ echo4 "or fails to handle a signal value of zero..."
 $ kill_by_sigprc = "undef"
 $ OS
 $ WS "#include <stdio.h>"
 $ WS "#include <signal.h>"
 $ WS "#include <unistd.h>"
+$ WS "#ifdef __cplusplus"
+$ WS "extern ""C"" {"
+$ WS "#endif"
+$ WS "int __posix_kill (__pid_t __pid, int __sig);"
+$ WS "#ifdef __cplusplus"
+$ WS "}"
+$ WS "#endif"
+$ WS "#define kill __posix_kill"
 $ WS "void handler1(int s) { printf(""%d"",s); kill(getpid(),2); }"
 $ WS "void handler2(int s) { printf(""%d"",s); }"
-$ WS "main(){"
+$ WS "int main(){"
 $ WS "    printf(""0"");"
 $ WS "    signal(1,handler1);"
 $ WS "    signal(2,handler2);"
@@ -5749,7 +5685,7 @@ $   WS "int handler(unsigned long *args) {"
 $   WS "    code = args[1];"
 $   WS "    return 1;"
 $   WS "}"
-$   WS "main() { "
+$   WS "int main() { "
 $   WS "    int iss;"
 $   WS "    lib$establish(handler);"
 $   WS "    iss = sys$sigprc(0,0,0x1234);"
@@ -6544,7 +6480,7 @@ $ WC "i_rpcsvcdbm='undef'"
 $ WC "i_sgtty='undef'"
 $ WC "i_shadow='" + i_shadow + "'"
 $ WC "i_socks='" + i_socks + "'"
-$ IF ccname .EQS. "DEC" .AND. F$INTEGER(Dec_C_Version).GE.60400000
+$ IF ccname .NES. "DEC" .OR. F$INTEGER(Dec_C_Version).GE.60400000
 $ THEN
 $   WC "i_stdbool='define'"
 $ ELSE
@@ -6656,7 +6592,12 @@ $ WC "multiarch='undef'"
 $ WC "mydomain='" + mydomain + "'"
 $ WC "myhostname='" + myhostname + "'"
 $ WC "myuname='" + myuname + "'"
-$ WC "need_va_copy='undef'"
+$ IF (F$ELEMENT(0, "-", archname).EQS."VMS_x86_64")
+$ THEN
+$   WC "need_va_copy='define'"
+$ ELSE
+$   WC "need_va_copy='undef'"
+$ ENDIF
 $ WC "netdb_hlen_type='" + netdb_hlen_type + "'"
 $ WC "netdb_host_type='" + netdb_host_type + "'"
 $ WC "netdb_name_type='" + netdb_name_type + "'"
@@ -6774,7 +6715,7 @@ $ WC "so='" + so + "'"
 $ WC "socksizetype='" + socksizetype + "'"
 $ WC "spitshell='write sys$output '"
 $ WC "src='" + src + "'"
-$ WC "ssizetype='int'"
+$ WC "ssizetype='ssize_t'"
 $ WC "startperl=" + startperl ! This one's special--no enclosing single quotes
 $ WC "static_ext='" + static_ext + "'"
 $ WC "st_dev_size='"4"'"
