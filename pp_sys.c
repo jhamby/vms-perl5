@@ -5118,6 +5118,30 @@ S_space_join_names_mortal(pTHX_ char *const *array)
     return target;
 }
 
+#if defined(VMS) && (PTRSIZE == 8)
+/* The C RTL DNS resolver calls return an array of 32-bit pointers. */
+static char **
+ptr32_to_ptr64_copy(__char_ptr_const_ptr32 array_ptr32)
+{
+    if (!array_ptr32)
+        return NULL;
+
+    int num_entries = 0;
+    /* Don't copy too many entries to limit damage from overflows. */
+    while (array_ptr32[num_entries] && num_entries < 200)
+        num_entries++;
+
+    char **array_copy = (char **)
+            PerlMem_malloc(sizeof(char *) * (num_entries + 1));
+
+    for (int i = 0; i < num_entries; i++)
+        array_copy[i] = (char *) array_ptr32[i];
+
+    array_copy[num_entries] = NULL;
+    return array_copy;
+}
+#endif
+
 /* Get system info. */
 
 /* also used for: pp_ghbyaddr() pp_ghbyname() */
@@ -5130,7 +5154,11 @@ PP_wrapped(pp_ghostent,
 #if defined(HAS_GETHOSTBYNAME) || defined(HAS_GETHOSTBYADDR) || defined(HAS_GETHOSTENT)
     dSP;
     I32 which = PL_op->op_type;
+#if defined(VMS) && (PTRSIZE == 8)
+    __char_ptr_ptr32 elem;
+#else
     char **elem;
+#endif
     SV *sv;
 #ifndef HAS_GETHOST_PROTOS /* XXX Do we need individual probes? */
     struct hostent *gethostbyaddr(Netdb_host_t, Netdb_hlen_t, int);
@@ -5196,7 +5224,13 @@ PP_wrapped(pp_ghostent,
 
     if (hent) {
         mPUSHs(newSVpv((char*)hent->h_name, 0));
+#if defined(VMS) && (PTRSIZE == 8)
+        char **aliases = ptr32_to_ptr64_copy(hent->h_aliases);
+        PUSHs(space_join_names_mortal(aliases));
+        PerlMem_free(aliases);
+#else
         PUSHs(space_join_names_mortal(hent->h_aliases));
+#endif
         mPUSHi(hent->h_addrtype);
         len = hent->h_length;
         mPUSHi(len);
@@ -5284,7 +5318,13 @@ PP_wrapped(pp_gnetent,
 
     if (nent) {
         mPUSHs(newSVpv(nent->n_name, 0));
+#if defined(VMS) && (PTRSIZE == 8)
+        char **aliases = ptr32_to_ptr64_copy(nent->n_aliases);
+        PUSHs(space_join_names_mortal(aliases));
+        PerlMem_free(aliases);
+#else
         PUSHs(space_join_names_mortal(nent->n_aliases));
+#endif
         mPUSHi(nent->n_addrtype);
         mPUSHi(nent->n_net);
     }
@@ -5351,7 +5391,13 @@ PP_wrapped(pp_gprotoent,
 
     if (pent) {
         mPUSHs(newSVpv(pent->p_name, 0));
+#if defined(VMS) && (PTRSIZE == 8)
+        char **aliases = ptr32_to_ptr64_copy(pent->p_aliases);
+        PUSHs(space_join_names_mortal(aliases));
+        PerlMem_free(aliases);
+#else
         PUSHs(space_join_names_mortal(pent->p_aliases));
+#endif
         mPUSHi(pent->p_proto);
     }
 
@@ -5421,7 +5467,13 @@ PP_wrapped(pp_gservent,
 
     if (sent) {
         mPUSHs(newSVpv(sent->s_name, 0));
+#if defined(VMS) && (PTRSIZE == 8)
+        char **aliases = ptr32_to_ptr64_copy(sent->s_aliases);
+        PUSHs(space_join_names_mortal(aliases));
+        PerlMem_free(aliases);
+#else
         PUSHs(space_join_names_mortal(sent->s_aliases));
+#endif
         mPUSHi(PerlSock_ntohs(sent->s_port));
         mPUSHs(newSVpv(sent->s_proto, 0));
     }
