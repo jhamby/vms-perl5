@@ -5179,12 +5179,8 @@ S_my_localeconv(pTHX_ const int item)
 #  endif
 
         /* Examine each string */
-        while (1) {
-            const char * name = strings[i]->name;
-
-            if (! name) {   /* Reached the end */
-                break;
-            }
+        for (const lconv_offset_t *strp = strings[i]; strp->name; strp++) {
+            const char * name = strp->name;
 
             /* 'value' will contain the string that may need to be marked as
              * UTF-8 */
@@ -5194,21 +5190,19 @@ S_my_localeconv(pTHX_ const int item)
             }
 
             /* Determine if the string should be marked as UTF-8. */
-            if (UTF8NESS_YES == (get_locale_string_utf8ness_i(SvPVX(*value),
+            if (UTF8NESS_YES == (get_locale_string_utf8ness_i(SvPV_nolen(*value),
                                                   locale_is_utf8,
                                                   NULL,
                                                   (locale_category_index) 0)))
             {
                 SvUTF8_on(*value);
             }
-
-            strings[i]++;   /* Iterate */
         }
     }   /* End of fixing up UTF8ness */
 
 
     /* Examine each integer */
-    if (integers) while (1) {
+    for (; integers; integers++) {
         const char * name = integers->name;
 
         if (! name) {   /* Reached the end */
@@ -5224,8 +5218,6 @@ S_my_localeconv(pTHX_ const int item)
         if (SvIV(*value) == CHAR_MAX) {
             sv_setiv(*value, -1);
         }
-
-        integers++;   /* Iterate */
     }
 
     return hv;
@@ -6327,7 +6319,7 @@ S_my_langinfo_i(pTHX_
          * will find out whether a locale is UTF-8 or not */
 
         utf8ness_t is_utf8 = UTF8NESS_UNKNOWN;
-        const char * scratch_buf = NULL;
+        char * scratch_buf = NULL;
 
 #          if defined(USE_LOCALE_MONETARY) && defined(HAS_LOCALECONV)
 #            define LANGINFO_RECURSED_MONETARY  0x1
