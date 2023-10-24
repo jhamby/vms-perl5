@@ -1575,7 +1575,7 @@ $   echo4 "adding /NOANSI_ALIAS/NoExceptions qualifier to ccflags."
 $   ccflags = ccflags + "/NOANSI_ALIAS/NoExceptions"
 $   IF (F$ELEMENT(0, "-", archname).EQS."VMS_x86_64")
 $   THEN
-$!    Force 64-bit pointers on x86 C++
+$! Force 64-bit pointers on x86 C++
 $     echo4 "adding /Pointer=64=argv/Opt=(Lev=3) qualifier to ccflags for Clang."
 $     ccflags = ccflags + "/Pointer=64=argv/Opt=(Lev=3)"
 $   ENDIF
@@ -2995,7 +2995,7 @@ $   THEN
 $     Checkcc := "cxx/NoExceptions"
 $     IF (F$ELEMENT(0, "-", archname).EQS."VMS_x86_64")
 $     THEN
-$!      Force 64-bit argv on x86
+$! Force 64-bit argv on x86
 $       Checkcc = "''Checkcc'" + "/Pointer=64=argv/Opt=(Lev=3)"
 $     ENDIF
 $   ELSE
@@ -5132,8 +5132,8 @@ $  d_getgrgid_r = "undef"
 $  getgrgid_r_proto = "0"
 $  d_getgrnam_r = "undef"
 $  getgrnam_r_proto = "0"
-$  d_getpgid = "undef"
-$  d_getpgrp = "undef"
+$!  d_getpgid = "undef"
+$!  d_getpgrp = "undef"
 $! N.B.  We already have home-grown thread-safe versions of
 $!       getpwnam and getpwuid -- no need to use CRTL versions
 $  d_getpwnam_r = "undef"
@@ -5148,8 +5148,8 @@ $  getgrnam_r_proto = "1"
 $  if d_symlink .or. d_symlink .EQS. "define"
 $  then
 $!	 FIXME: Need to find how to activate this.
-$!       d_getpgid = "define"
-$!       d_getpgrp = "define"
+$       d_getpgid = "define"
+$       d_getpgrp = "define"
 $  endif
 $  d_setgrent = "define"
 $  d_ttyname_r = "define"
@@ -5650,7 +5650,7 @@ $ WS "int __posix_kill (__pid_t __pid, int __sig);"
 $ WS "#ifdef __cplusplus"
 $ WS "}"
 $ WS "#endif"
-$ WS "#define kill __posix_kill"
+$ WS "#define kill(pid,sig) __posix_kill(pid,sig)"
 $ WS "void handler1(int s) { printf(""%d"",s); kill(getpid(),2); }"
 $ WS "void handler2(int s) { printf(""%d"",s); }"
 $ WS "int main(){"
@@ -5718,7 +5718,8 @@ $   ccflags="/Include=[]/Standard=Relaxed_ANSI/Prefix=All/Obj=''obj_ext' ''ccfla
 $ ENDIF
 $ IF ccname .EQS. "CXX"
 $ THEN
-$   ccflags="/Include=[]/Standard=ANSI/Prefix=All/Obj=''obj_ext' ''ccflags'"
+$   ccflags="/Include=[]/Standard=ANSI/Prefix=All/Obj=''obj_ext'" + ccflags
+$   write sys$output "''ccflags'"
 $ ENDIF
 $ IF use_vmsdebug_perl
 $ THEN
@@ -6129,7 +6130,7 @@ $ WC "d_msghdr_s='undef'"
 $ WC "d_msync='" + d_msync + "'"
 $ WC "d_munmap='" + d_munmap + "'"
 $ WC "d_mymalloc='" + d_mymalloc + "'"
-$ WC "d_nan='undef'"
+$ WC "d_nan='" + d_isnanl + "'"
 $ WC "d_nanosleep='" + d_nanosleep + "'"
 $ WC "d_ndbm='undef'"
 $ WC "d_ndbm_h_uses_prototypes='undef'"
@@ -6940,6 +6941,7 @@ $!
 $! Okay, we've gotten here. Build munchconfig.exe
 $ COPY/NOLOG [-.vms]munchconfig.c []
 $ COPY/NOLOG [-.vms]'Makefile_SH' []
+$! 'Perl_CC' 'ccflags' munchconfig.c
 $ 'Perl_CC' 'ccflags' munchconfig.c
 $ 'ld'/EXE='exe_ext' munchconfig'obj_ext'
 $ IF F$SEARCH("munchconfig''obj_ext'") .NES. "" THEN DELETE/NOLOG/NOCONFIRM munchconfig'obj_ext';

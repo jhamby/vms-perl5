@@ -280,18 +280,18 @@ struct interp_intern {
 #define PERL__TRNENV_JOIN_SEARCHLIST 0x02
 
 /* Handy way to vet calls to VMS system services and RTL routines. */
-#define _ckvmssts(call) STMT_START { unsigned int __ckvms_sts; \
+#define _ckvmssts(call) STMT_START { unsigned long int __ckvms_sts; \
   if (!((__ckvms_sts=(call))&1)) { \
   set_errno(EVMSERR); set_vaxc_errno(__ckvms_sts); \
-  Perl_croak(aTHX_ "Fatal VMS error (status=%08x) at %s, line %d", \
+  Perl_croak(aTHX_ "Fatal VMS error (status=%d) at %s, line %d", \
   __ckvms_sts,__FILE__,__LINE__); } } STMT_END
 
 /* Same thing, but don't call back to Perl's croak(); useful for errors
  * occurring during startup, before Perl's state is initialized */
-#define _ckvmssts_noperl(call) STMT_START { unsigned int __ckvms_sts; \
+#define _ckvmssts_noperl(call) STMT_START { unsigned long int __ckvms_sts; \
   if (!((__ckvms_sts=(call))&1)) { \
   set_errno(EVMSERR); set_vaxc_errno(__ckvms_sts); \
-  (void)fprintf(stderr,"Fatal VMS error (status=%08x) at %s, line %d", \
+  (void)fprintf(stderr,"Fatal VMS error (status=%d) at %s, line %d", \
   __ckvms_sts,__FILE__,__LINE__); (void)lib$signal(__ckvms_sts); } } STMT_END
 
 #ifdef VMS_DO_SOCKETS
@@ -530,9 +530,9 @@ struct dirent {
     /* Handle returned by opendir(), used by the other routines.  You
      * are not supposed to care what's inside this structure. */
 typedef struct _dirdesc {
-    int				context;
+    long			context;
     int				flags;
-    unsigned int		count;
+    unsigned long int           count;
     char			*pattern;
     struct dirent		entry;
     struct dsc$descriptor_s	pat;
@@ -581,7 +581,7 @@ struct passwd {
  * members to the real names.
  */
 
-#if defined(__DECC) || defined(__DECCXX) || defined(__clang__)
+#if defined(__DECC) || defined(__DECCXX)
 #  pragma __member_alignment __save
 #  pragma member_alignment
 #endif
@@ -626,7 +626,7 @@ struct mystat
 #define VMS_INO_T_COPY(__a, __b) memcpy(&__a, &__b, 6)
 #endif
 
-#if defined(__DECC) || defined(__DECCXX) || defined(__clang__)
+#if defined(__DECC) || defined(__DECCXX)
 #  pragma __member_alignment __restore
 #endif
 
@@ -658,10 +658,10 @@ void	prime_env_iter (void);
 void	init_os_extras (void);
 int	Perl_vms_status_to_unix(int vms_status, int child_flag);
 int	Perl_unix_status_to_vms(int unix_status);
-int	Perl_vmstrnenv (const char *, char *, unsigned int, struct dsc$descriptor_s **, unsigned int);
+int	Perl_vmstrnenv (const char *, char *, unsigned long int, struct dsc$descriptor_s **, unsigned long int);
 char *	Perl_vms_realpath (pTHX_ const char *, char *, int *);
 char *	Perl_my_getenv (pTHX_ const char *, bool);
-int	Perl_my_trnlnm (pTHX_ const char *, char *, unsigned int);
+int	Perl_my_trnlnm (pTHX_ const char *, char *, unsigned long int);
 char *	Perl_tounixspec (pTHX_ const char *, char *);
 char *	Perl_tounixspec_ts (pTHX_ const char *, char *);
 char *	Perl_tounixspec_utf8 (pTHX_ const char *, char *, int *);
