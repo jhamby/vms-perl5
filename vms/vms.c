@@ -110,6 +110,12 @@ struct item_list_3 {
 #define lstat(_x, _y) stat(_x, _y)
 #endif
 
+#ifdef __cplusplus
+#define callback_t	void (*)(...)
+#else
+#define callback_t	void (*)()
+#endif
+
 /* Routine to create a decterm for use with the Perl debugger */
 /* No headers, this information was found in the Programming Concepts Manual */
 
@@ -384,7 +390,7 @@ copy_expand_unix_filename_escape(char *outspec, const char *inspec, int *output_
 
     count = 0;
     *output_cnt = 0;
-    if (*inspec >= 0x80) {
+    if ((unsigned char)*inspec >= 0x80) {
         if (utf8_fl && vms_vtf7_filenames) {
         unsigned int ucs_char;
 
@@ -600,14 +606,14 @@ copy_expand_vms_filename_escape(char *outspec, const char *inspec, int *output_c
             break;
         case 'U': /* Unicode - FIX-ME this is wrong. */
             inspec++;
-            count++;
+            count += 2;
             scnt = strspn(inspec, "0123456789ABCDEFabcdef");
             if (scnt == 4) {
-                unsigned int c1, c2;
+                unsigned int c1 = 0, c2 = 0;
                 scnt = sscanf(inspec, "%2x%2x", &c1, &c2);
-                outspec[0] = (U8) c1;
-                outspec[1] = (U8) c2;
                 if (scnt > 1) {
+                    outspec[0] = (U8) c1;
+                    outspec[1] = (U8) c2;
                     (*output_cnt) += 2;
                     count += 4;
                 }
@@ -615,11 +621,7 @@ copy_expand_vms_filename_escape(char *outspec, const char *inspec, int *output_c
             else {
                 /* Error - do best we can to continue */
                 *outspec = 'U';
-                outspec++;
-                (*output_cnt++);
-                *outspec = *inspec;
-                count++;
-                (*output_cnt++);
+                (*output_cnt)++;
             }
             break;
         default:
@@ -628,16 +630,16 @@ copy_expand_vms_filename_escape(char *outspec, const char *inspec, int *output_c
                 /* Hex encoded */
                 unsigned int c1;
                 scnt = sscanf(inspec, "%2x", &c1);
-                outspec[0] = c1 & 0xff;
                 if (scnt > 0) {
-                    (*output_cnt++);
+                    outspec[0] = c1 & 0xff;
+                    (*output_cnt)++;
                     count += 2;
                 }
             }
             else {
                 *outspec = *inspec;
                 count++;
-                (*output_cnt++);
+                (*output_cnt)++;
             }
         }
     }
@@ -1631,7 +1633,7 @@ Perl_vmssetenv(pTHX_ const char *lnm, const char *eqv, struct dsc$descriptor_s *
           set_errno(EVMSERR);
        }
        set_vaxc_errno(retsts);
-       return (int) retsts || 44; /* retsts should never be 0, but just in case */
+       return retsts ? (int) retsts : 44; /* retsts should never be 0, but just in case */
     }
     else {
       /* We reset error values on success because Perl does an hv_fetch()
@@ -3204,7 +3206,7 @@ popen_completion_ast(pInfo info)
   if (info->in && !info->in_done) {               /* only for mode=w */
         if (info->in->shut_on_empty && info->in->need_wake) {
             info->in->need_wake = FALSE;
-            _ckvmssts_noperl(sys$dclast(pipe_tochild2_ast,
+            _ckvmssts_noperl(sys$dclast((callback_t) pipe_tochild2_ast,
                                         (unsigned __int64) info->in,0));
         } else {
             _ckvmssts_noperl(sys$cancel(info->in->chan_out));
@@ -3322,7 +3324,7 @@ pipe_tochild1_ast(pPipe p)
                                           (__int64 *) &p->wait));
         if (p->need_wake) {
             p->need_wake = FALSE;
-            _ckvmssts_noperl(sys$dclast(pipe_tochild2_ast,
+            _ckvmssts_noperl(sys$dclast((callback_t) pipe_tochild2_ast,
                                         (unsigned __int64) p,0));
         }
     } else {
@@ -3352,7 +3354,8 @@ pipe_tochild1_ast(pPipe p)
     iss = sys$qio(0,p->chan_in,
              IO$_READVBLK|(p->shut_on_empty ? IO$M_NOWAIT : 0),
              &p->iosb,
-             pipe_tochild1_ast, (__int64) p, b->buf, p->bufsize, 0, 0, 0, 0);
+             (callback_t) pipe_tochild1_ast, (__int64) p, b->buf,
+             p->bufsize, 0, 0, 0, 0);
     if (iss == SS$_ENDOFFILE && p->shut_on_empty) iss = SS$_NORMAL;
     _ckvmssts_noperl(iss);
 }
@@ -3393,7 +3396,7 @@ pipe_tochild2_ast(pPipe p)
                     _ckvmssts_noperl(sys$setef(pipe_ef));
                 } else {
                     _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_WRITEOF,
-                        &p->iosb2, pipe_tochild2_ast, (__int64) p,
+                        &p->iosb2, (callback_t) pipe_tochild2_ast, (__int64) p,
                         0, 0, 0, 0, 0, 0));
                 }
                 return;
@@ -3409,12 +3412,12 @@ pipe_tochild2_ast(pPipe p)
     p->curr2 = b;
     if (b->eof) {
         _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_WRITEOF,
-            &p->iosb2, pipe_tochild2_ast, (__int64) p,
+            &p->iosb2, (callback_t) pipe_tochild2_ast, (__int64) p,
             0, 0, 0, 0, 0, 0));
     } else {
         _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_WRITEVBLK,
-            &p->iosb2, pipe_tochild2_ast, (__int64) p, b->buf, b->size,
-            0, 0, 0, 0));
+            &p->iosb2, (callback_t) pipe_tochild2_ast, (__int64) p,
+            b->buf, b->size, 0, 0, 0, 0));
     }
 
     return;
@@ -3488,15 +3491,16 @@ pipe_infromchild_ast(pPipe p)
         if (p->chan_out) {
             if (myeof || kideof) {      /* pass EOF to parent */
                 _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_WRITEOF, &p->iosb,
-                                         pipe_infromchild_ast, (__int64) p,
-                                         0, 0, 0, 0, 0, 0));
+                                         (callback_t) pipe_infromchild_ast,
+                                         (__int64) p, 0, 0, 0, 0, 0, 0));
                 return;
             } else if (eof) {       /* eat EOF --- fall through to read*/
 
             } else {                /* transmit data */
                 _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_WRITEVBLK,&p->iosb,
-                                         pipe_infromchild_ast, (__int64) p,
-                                         p->buf, p->iosb.iosb$w_bcnt, 0, 0, 0, 0));
+                                         (callback_t) pipe_infromchild_ast,
+                                         (__int64) p, p->buf,
+                                         p->iosb.iosb$w_bcnt, 0, 0, 0, 0));
                 return;
             }
         }
@@ -3520,18 +3524,18 @@ pipe_infromchild_ast(pPipe p)
     if (p->type == 0) {
         p->type = 1;
         if (p->chan_in) {
-            iss = sys$qio(0,p->chan_in,IO$_READVBLK|(p->shut_on_empty ? IO$M_NOW : 0),&p->iosb,
-                          pipe_infromchild_ast, (__int64) p,
-                          p->buf, p->bufsize, 0, 0, 0, 0);
+            iss = sys$qio(0,p->chan_in,
+                          IO$_READVBLK|(p->shut_on_empty ? IO$M_NOW : 0),
+                          &p->iosb, (callback_t) pipe_infromchild_ast,
+                          (__int64) p, p->buf, p->bufsize, 0, 0, 0, 0);
             if (p->shut_on_empty && iss == SS$_ENDOFFILE) iss = SS$_NORMAL;
             _ckvmssts_noperl(iss);
         } else {           /* send EOFs for extra reads */
             p->iosb.iosb$w_status = SS$_ENDOFFILE;
             p->iosb.iosb$l_pid = 0;
             _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_SETMODE|IO$M_READATTN,
-                                     0, 0, 0,
-                                     pipe_infromchild_ast,
-                                     (__int64) p, 0, 0, 0, 0));
+                                     0, (callback_t) pipe_infromchild_ast,
+                                     (__int64) p, 0, 0, 0, 0, 0, 0));
         }
     }
 }
@@ -3601,7 +3605,7 @@ pipe_mbxtofd_setup(pTHX_ int fd, char *out)
     strcpy(out, mbx);
 
     _ckvmssts_noperl(sys$qio(0, p->chan_in, IO$_READVBLK, &p->iosb,
-                             pipe_mbxtofd_ast, (__int64) p,
+                             (callback_t) pipe_mbxtofd_ast, (__int64) p,
                              p->buf, p->bufsize, 0, 0, 0, 0));
 
     return p;
@@ -3633,7 +3637,8 @@ pipe_mbxtofd_ast(pPipe p)
         if (iss2 < 0) {
             p->retry++;
             if (p->retry < MAX_RETRY) {
-                _ckvmssts_noperl(sys$setimr(0,&delaytime,pipe_mbxtofd_ast,
+                _ckvmssts_noperl(sys$setimr(0,&delaytime,
+                                            (callback_t) pipe_mbxtofd_ast,
                                             (__int64)p,0));
                 return;
             }
@@ -3644,9 +3649,10 @@ pipe_mbxtofd_ast(pPipe p)
     }
 
 
-    iss = sys$qio(0, p->chan_in, IO$_READVBLK|(p->shut_on_empty ? IO$M_NOW : 0), &p->iosb,
-          pipe_mbxtofd_ast, (__int64) p,
-          p->buf, p->bufsize, 0, 0, 0, 0);
+    iss = sys$qio(0, p->chan_in,
+                  IO$_READVBLK|(p->shut_on_empty ? IO$M_NOW : 0), &p->iosb,
+                  (callback_t) pipe_mbxtofd_ast, (__int64) p,
+                  p->buf, p->bufsize, 0, 0, 0, 0);
     if (p->shut_on_empty && (iss == SS$_ENDOFFILE)) iss = SS$_NORMAL;
     _ckvmssts_noperl(iss);
 }
@@ -4009,10 +4015,11 @@ create_forked_xterm(pTHX_ const char *cmd, const char *mode)
     struct dsc$descriptor_s d_mbx1 = {sizeof mbx1, DSC$K_DTYPE_T,
                                           DSC$K_CLASS_S, mbx1};
 
+#if !defined(__clang__)
      /* LIB$FIND_IMAGE_SIGNAL needs a handler */
     /*---------------------------------------*/
     VAXC$ESTABLISH((__vms_handler)lib$sig_to_ret);
-
+#endif
 
     /* Make sure that this is from the Perl debugger */
     ret_char = strstr(cmd," xterm ");
@@ -4034,7 +4041,7 @@ create_forked_xterm(pTHX_ const char *cmd, const char *mode)
        status = lib$find_image_symbol
                                (&filename1_dsc,
                                 &decw_term_port_dsc,
-                                (void *)&decw_term_port,
+                                (int *)&decw_term_port,
                                 NULL,
                                 0);
 
@@ -4044,7 +4051,7 @@ create_forked_xterm(pTHX_ const char *cmd, const char *mode)
            status = lib$find_image_symbol
                                (&filename2_dsc,
                                 &decw_term_port_dsc,
-                                (void *)&decw_term_port,
+                                (int *)&decw_term_port,
                                 NULL,
                                 0);
 
@@ -4619,7 +4626,7 @@ my_pclose_pinfo(pTHX_ pInfo info) {
         if (info->out->chan_out) {
             _ckvmssts(sys$cancel(info->out->chan_out));
             if (!info->out->chan_in) {   /* EOF generation, need AST */
-                _ckvmssts(sys$dclast(pipe_infromchild_ast,
+                _ckvmssts(sys$dclast((callback_t) pipe_infromchild_ast,
                                      (unsigned __int64)info->out,0));
             }
         }
@@ -6925,7 +6932,7 @@ int_pathify_dirspec(const char *dir, char *buf)
              for (; *str; ++str) {
                  while (*str == '/') {
                      dir_start = 1;
-                     *str++;
+                     str++;
                  }
                  if (dir_start) {
 
@@ -8366,7 +8373,7 @@ posix_to_vmsspec_hardway(char *vmspath, int vmspath_len, const char *unixpath,
     vmsptr2 = vmsptr - 1;
 
     if (*vmsptr2 != ']') {
-      *vmsptr2--;
+      vmsptr2--;
 
       /* directories do not end in a dot bracket */
       if (*vmsptr2 == '.') {
@@ -9185,9 +9192,9 @@ mp_getredirection(pTHX_ int *ac, char ***av)
     struct list_item	*list_tail;	/* Last Item in List	    */
     char 		*in = NULL;	/* Input File Name	    */
     char 		*out = NULL;	/* Output File Name	    */
-    char 		*outmode = "w";	/* Mode to Open Output File */
+    const char 		*outmode = "w";	/* Mode to Open Output File */
     char 		*err = NULL;	/* Error File Name	    */
-    char 		*errmode = "w";	/* Mode to Open Error File  */
+    const char 		*errmode = "w";	/* Mode to Open Error File  */
     int			cmargc = 0;    	/* Piped Command Arg Count  */
     char		**cmargv = NULL;/* Piped Command Arg Vector */
 
@@ -9461,7 +9468,7 @@ mp_expand_wild_cards(pTHX_ char *item, struct list_item **head,
     resultspec.dsc$a_pointer = NULL;
     vmsspec = (char *)PerlMem_malloc(VMS_MAXRSS);
     if (vmsspec == NULL) _ckvmssts_noperl(SS$_INSFMEM);
-    if ((isunix = (int) strchr(item,'/')) != (int) NULL)
+    if ((isunix = (strchr(item,'/') != NULL)))
       filespec.dsc$a_pointer = int_tovmsspec(item, vmsspec, 0, NULL);
     if (!isunix || !filespec.dsc$a_pointer)
       filespec.dsc$a_pointer = item;
@@ -9770,7 +9777,7 @@ vms_image_init(int *argcp, char ***argvp)
   }
 
   for (tabidx = 0;
-       len = my_trnlnm("PERL_ENV_TABLES",eqv,tabidx);
+       (len = my_trnlnm("PERL_ENV_TABLES",eqv,tabidx));
        tabidx++) {
     if (!tabidx) {
       tabvec = (struct dsc$descriptor_s **)
@@ -10744,7 +10751,7 @@ setup_cmddsc(pTHX_ const char *incmd, int check_img, int *suggest_quote,
 #ifdef ALTERNATE_SHEBANG
           else {
             if (strEQ(b, ALTERNATE_SHEBANG)) {
-              char * perlstr;
+              const char * perlstr;
                 perlstr = strstr("perl",b);
                 if (perlstr == NULL)
                   shebang_len = 0;
@@ -13391,7 +13398,7 @@ void
 init_os_extras(void)
 {
   dTHX;
-  char* file = __FILE__;
+  const char* file = __FILE__;
   if (DECC_DISABLE_TO_VMS_LOGNAME_TRANSLATION) {
     no_translate_barewords = TRUE;
   } else {
