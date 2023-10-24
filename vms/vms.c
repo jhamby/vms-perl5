@@ -19,6 +19,8 @@
  *
  *     [p.162 of _The Lays of Beleriand_]
  */
+
+#define __NEW_STARLET 1
  
 #include <acedef.h>
 #include <acldef.h>
@@ -32,7 +34,9 @@
 #include <dvidef.h>
 #include <float.h>
 #include <fscndef.h>
+#include <gen64def.h>
 #include <iodef.h>
+#include <iosbdef.h>
 #include <jpidef.h>
 #include <kgbdef.h>
 #include <libclidef.h>
@@ -262,8 +266,8 @@ static int vms_debug_fileify = 0;
 static int
 simple_trnlnm(const char * logname, char * value, int value_len)
 {
-    const $DESCRIPTOR(table_dsc, "LNM$FILE_DEV");
-    const unsigned long attr = LNM$M_CASE_BLIND;
+    $DESCRIPTOR(table_dsc, "LNM$FILE_DEV");
+    unsigned int attr = LNM$M_CASE_BLIND;
     struct dsc$descriptor_s name_dsc;
     int status;
     unsigned short result;
@@ -324,7 +328,7 @@ is_unix_filespec(const char *path)
  */
 
 static void
-ucs2_to_vtf7(char *outspec, unsigned long ucs2_char, int * output_cnt)
+ucs2_to_vtf7(char *outspec, unsigned int ucs2_char, int * output_cnt)
 {
     unsigned char * ucs_ptr;
     int hex;
@@ -382,7 +386,7 @@ copy_expand_unix_filename_escape(char *outspec, const char *inspec, int *output_
     *output_cnt = 0;
     if (*inspec >= 0x80) {
         if (utf8_fl && vms_vtf7_filenames) {
-        unsigned long ucs_char;
+        unsigned int ucs_char;
 
             ucs_char = 0;
 
@@ -661,7 +665,7 @@ vms_split_path(const char * path, char * * volume, int * vol_len, char * * root,
 {
     struct dsc$descriptor path_desc;
     int status;
-    unsigned long flags;
+    unsigned int flags;
     int ret_stat;
     struct filescan_itmlst_2 item_list[9];
     const int filespec = 0;
@@ -738,9 +742,7 @@ vms_split_path(const char * path, char * * volume, int * vol_len, char * * root,
     item_list[8].length = 0;
     item_list[8].component = NULL;
 
-    status = sys$filescan
-       ((const struct dsc$descriptor_s *)&path_desc, item_list,
-        &flags, NULL, NULL);
+    status = sys$filescan(&path_desc, item_list, &flags, NULL, NULL);
     _ckvmssts_noperl(status); /* All failure status values indicate a coding error */
 
     /* If we parsed it successfully these two lengths should be the same */
@@ -837,7 +839,7 @@ my_maxidx(const char *lnm)
 {
     int status;
     int midx;
-    int attr = LNM$M_CASE_BLIND;
+    unsigned int attr = LNM$M_CASE_BLIND;
     struct dsc$descriptor lnmdsc;
     struct itmlst_3 itlst[2] = {{sizeof(midx), LNM$_MAX_INDEX, &midx, 0},
                                 {0, 0, 0, 0}};
@@ -874,16 +876,16 @@ S_remove_ppf_prefix(const char *lnm, char *eqv, unsigned short int eqvlen)
     return eqvlen;
 }
 
-/*{{{int vmstrnenv(const char *lnm, char *eqv, unsigned long int idx, struct dsc$descriptor_s **tabvec, unsigned long int flags) */
+/*{{{int vmstrnenv(const char *lnm, char *eqv, unsigned int idx, struct dsc$descriptor_s **tabvec, unsigned int flags) */
 int
-Perl_vmstrnenv(const char *lnm, char *eqv, unsigned long int idx,
-  struct dsc$descriptor_s **tabvec, unsigned long int flags)
+Perl_vmstrnenv(const char *lnm, char *eqv, unsigned int idx,
+  struct dsc$descriptor_s **tabvec, unsigned int flags)
 {
     const char *cp1;
     char uplnm[LNM$C_NAMLENGTH+1], *cp2;
     unsigned short int eqvlen, curtab, ivlnm = 0, ivsym = 0, ivenv = 0, secure;
     bool found_in_crtlenv = 0, found_in_clisym = 0;
-    unsigned long int retsts, attr = LNM$M_CASE_BLIND;
+    unsigned int retsts, attr = LNM$M_CASE_BLIND;
     int midx;
     unsigned char acmode;
     struct dsc$descriptor_s lnmdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0},
@@ -958,7 +960,7 @@ Perl_vmstrnenv(const char *lnm, char *eqv, unsigned long int idx,
           unsigned short int deflen = LNM$C_NAMLENGTH;
           struct dsc$descriptor_d eqvdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_D,0};
           /* dynamic dsc to accommodate possible long value */
-          _ckvmssts_noperl(lib$sget1_dd(&deflen,&eqvdsc));
+          _ckvmssts_noperl(lib$sget1_dd(&deflen, (unsigned __int64 *)&eqvdsc));
           retsts = lib$get_symbol(&lnmdsc,&eqvdsc,&eqvlen,0);
           if (retsts & 1) { 
             if (eqvlen > MAX_DCL_SYMBOL) {
@@ -980,7 +982,7 @@ Perl_vmstrnenv(const char *lnm, char *eqv, unsigned long int idx,
             }
             strncpy(eqv,eqvdsc.dsc$a_pointer,eqvlen);
           }
-          _ckvmssts_noperl(lib$sfree1_dd(&eqvdsc));
+          _ckvmssts_noperl(lib$sfree1_dd((unsigned __int64 *)&eqvdsc));
           if (retsts == LIB$_INVSYMNAM) { ivsym = 1; continue; }
           if (retsts == LIB$_NOSUCHSYM) continue;
           found_in_clisym = 1;
@@ -1037,10 +1039,10 @@ Perl_vmstrnenv(const char *lnm, char *eqv, unsigned long int idx,
 }  /* end of vmstrnenv */
 /*}}}*/
 
-/*{{{ int my_trnlnm(const char *lnm, char *eqv, unsigned long int idx)*/
+/*{{{ int my_trnlnm(const char *lnm, char *eqv, unsigned int idx)*/
 /* Define as a function so we can access statics. */
 int
-Perl_my_trnlnm(pTHX_ const char *lnm, char *eqv, unsigned long int idx)
+Perl_my_trnlnm(pTHX_ const char *lnm, char *eqv, unsigned int idx)
 {
     int flags = 0;
 
@@ -1071,7 +1073,7 @@ Perl_my_getenv(pTHX_ const char *lnm, bool sys)
     const char *cp1;
     static char *__my_getenv_eqv = NULL;
     char uplnm[LNM$C_NAMLENGTH+1], *cp2, *eqv;
-    unsigned long int idx = 0;
+    unsigned int idx = 0;
     int success, secure;
     int midx, flags;
     SV *tmpsv;
@@ -1166,7 +1168,7 @@ Perl_my_getenv_len(pTHX_ const char *lnm, unsigned long *len, bool sys)
 {
     const char *cp1;
     char *buf, *cp2;
-    unsigned long idx = 0;
+    unsigned int idx = 0;
     int midx, flags;
     static char *__my_getenv_len_eqv = NULL;
     int secure;
@@ -1261,7 +1263,7 @@ Perl_my_getenv_len(pTHX_ const char *lnm, unsigned long *len, bool sys)
 
 static void create_mbx(unsigned short int *, struct dsc$descriptor_s *);
 
-static void riseandshine(unsigned long int dummy) { sys$wake(0,0); }
+static void riseandshine(unsigned int dummy) { sys$wake(0,0); }
 
 /*{{{ void prime_env_iter() */
 void
@@ -1278,9 +1280,9 @@ prime_env_iter(void)
 #ifndef CLI$M_TRUSTED
 #  define CLI$M_TRUSTED 0x40  /* Missing from VAXC headers */
 #endif
-  unsigned long int defflags = CLI$M_NOWAIT | CLI$M_NOKEYPAD | CLI$M_TRUSTED;
-  unsigned long int mbxbufsiz, flags, retsts, subpid = 0, substs = 0;
-  long int i;
+  unsigned int defflags = CLI$M_NOWAIT | CLI$M_NOKEYPAD | CLI$M_TRUSTED;
+  unsigned int mbxbufsiz, flags, retsts, subpid = 0, substs = 0;
+  int i;
   bool have_sym = FALSE, have_lnm = FALSE;
   struct dsc$descriptor_s tmpdsc = {6,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
   $DESCRIPTOR(cmddsc,cmd);    $DESCRIPTOR(nldsc,"_NLA0:");
@@ -1327,7 +1329,7 @@ prime_env_iter(void)
      if (!have_lnm && str$case_blind_compare(env_tables[i],&crtlenv)) have_lnm = 1;
   }
   if (have_sym || have_lnm) {
-    long int syiitm = SYI$_MAXBUF, dviitm = DVI$_DEVNAM;
+    int syiitm = SYI$_MAXBUF, dviitm = DVI$_DEVNAM;
     _ckvmssts(lib$getsyi(&syiitm, &mbxbufsiz, 0, 0, 0, 0));
     _ckvmssts(sys$crembx(0,&chan,mbxbufsiz,mbxbufsiz,0xff0f,0,0));
     _ckvmssts(lib$getdvi(&dviitm, &chan, NULL, NULL, &mbxdsc, &mbxdsc.dsc$w_length));
@@ -1388,11 +1390,12 @@ prime_env_iter(void)
     seenhv = newHV();
     while (1) {
       char *cp1, *cp2, *key;
-      unsigned long int sts, iosb[2], retlen, keylen;
+      unsigned int sts, retlen, keylen;
+      struct _iosb iosb;
       U32 hash;
 
-      sts = sys$qiow(0,chan,IO$_READVBLK,iosb,0,0,buf,mbxbufsiz,0,0,0,0);
-      if (sts & 1) sts = iosb[0] & 0xffff;
+      sts = sys$qiow(0,chan,IO$_READVBLK,&iosb,0,0,buf,mbxbufsiz,0,0,0,0);
+      if (sts & 1) sts = iosb.iosb$w_status & 0xffff;
       if (sts == SS$_ENDOFFILE) {
         int wakect = 0;
         while (substs == 0) { sys$hiber(); wakect++;}
@@ -1401,11 +1404,11 @@ prime_env_iter(void)
         break;
       }
       _ckvmssts(sts);
-      retlen = iosb[0] >> 16;      
+      retlen = iosb.iosb$w_bcnt;      
       if (!retlen) continue;  /* blank line */
       buf[retlen] = '\0';
-      if (iosb[1] != subpid) {
-        if (iosb[1]) {
+      if (iosb.iosb$l_pid != subpid) {
+        if (iosb.iosb$l_pid) {
           Perl_croak(aTHX_ "Unknown process %x sent message to prime_env_iter: %s",buf);
         }
         continue;
@@ -1494,7 +1497,8 @@ Perl_vmssetenv(pTHX_ const char *lnm, const char *eqv, struct dsc$descriptor_s *
     char uplnm[LNM$C_NAMLENGTH], *cp2, *c;
     unsigned short int curtab, ivlnm = 0, ivsym = 0, ivenv = 0;
     int nseg = 0, j;
-    unsigned long int retsts, usermode = PSL$C_USER;
+    unsigned int retsts;
+    unsigned char usermode = PSL$C_USER;
     struct itmlst_3 *ile, *ilist;
     struct dsc$descriptor_s lnmdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,uplnm},
                             eqvdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0},
@@ -1676,7 +1680,7 @@ Perl_vmssetuserlnm(const char *name, const char *eqv)
 {
     $DESCRIPTOR(d_tab, "LNM$PROCESS");
     struct dsc$descriptor_d d_name = {0,DSC$K_DTYPE_T,DSC$K_CLASS_D,0};
-    unsigned long int iss, attr = LNM$M_CONFINE;
+    unsigned int iss, attr = LNM$M_CONFINE;
     unsigned char acmode = PSL$C_USER;
     struct itmlst_3 lnmlst[2] = {{0, LNM$_STRING, 0, 0},
                                  {0, 0, 0, 0}};
@@ -1712,7 +1716,7 @@ Perl_my_crypt(pTHX_ const char *textpasswd, const char *usrname)
 #   endif
     unsigned char alg = UAI$C_PREFERRED_ALGORITHM;
     unsigned short int salt = 0;
-    unsigned long int sts;
+    unsigned int sts;
     struct const_dsc {
         unsigned short int dsc$w_length;
         unsigned char      dsc$b_type;
@@ -1745,7 +1749,8 @@ Perl_my_crypt(pTHX_ const char *textpasswd, const char *usrname)
 
     txtdsc.dsc$w_length = strlen(textpasswd);
     txtdsc.dsc$a_pointer = textpasswd;
-    if (!((sts = sys$hash_password(&txtdsc, alg, salt, &usrdsc, &hash)) & 1)) {
+    if (!((sts = sys$hash_password(&txtdsc, alg, salt, &usrdsc,
+                                   (struct _generic_64 *) &hash)) & 1)) {
       set_errno(EVMSERR);  set_vaxc_errno(sts);  return NULL;
     }
 
@@ -1780,16 +1785,17 @@ mp_do_kill_file(pTHX_ const char *name, int dirflag)
 {
     char *vmsname;
     char *rslt;
-    unsigned long int jpicode = JPI$_UIC, type = ACL$C_FILE;
-    unsigned long int cxt = 0, aclsts, fndsts;
+    int jpicode = JPI$_UIC;
+    unsigned int type = ACL$C_FILE;
+    unsigned int cxt = 0, aclsts, fndsts;
     int rmsts = -1;
     struct dsc$descriptor_s fildsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
     struct myacedef {
       unsigned char myace$b_length;
       unsigned char myace$b_type;
       unsigned short int myace$w_flags;
-      unsigned long int myace$l_access;
-      unsigned long int myace$l_ident;
+      unsigned int myace$l_access;
+      unsigned int myace$l_ident;
     } newace = { sizeof(struct myacedef), ACE$C_KEYID, 0,
                  ACE$M_READ | ACE$M_WRITE | ACE$M_DELETE | ACE$M_CONTROL, 0},
       oldace = { sizeof(struct myacedef), ACE$C_KEYID, 0, 0, 0};
@@ -1839,7 +1845,7 @@ mp_do_kill_file(pTHX_ const char *name, int dirflag)
     cxt = 0;
     newace.myace$l_ident = oldace.myace$l_ident;
     rmsts = -1;
-    if (!((aclsts = sys$change_acl(0,&type,&fildsc,lcklst,0,0,0)) & 1)) {
+    if (!((aclsts = sys$change_acl(0,&type,&fildsc,lcklst,0,0,0,0,0)) & 1)) {
       switch (aclsts) {
         case RMS$_FNF: case RMS$_DNF: case SS$_NOSUCHOBJECT:
           set_errno(ENOENT); break;
@@ -1859,11 +1865,11 @@ mp_do_kill_file(pTHX_ const char *name, int dirflag)
       return -1;
     }
     /* Grab any existing ACEs with this identifier in case we fail */
-    aclsts = fndsts = sys$change_acl(0,&type,&fildsc,findlst,0,0,&cxt);
+    aclsts = fndsts = sys$change_acl(0,&type,&fildsc,findlst,0,0,&cxt,0,0);
     if ( fndsts & 1 || fndsts == SS$_ACLEMPTY || fndsts == SS$_NOENTRY
                     || fndsts == SS$_NOMOREACE ) {
       /* Add the new ACE . . . */
-      if (!((aclsts = sys$change_acl(0,&type,&fildsc,addlst,0,0,0)) & 1))
+      if (!((aclsts = sys$change_acl(0,&type,&fildsc,addlst,0,0,0,0,0)) & 1))
         goto yourroom;
 
       rmsts = rms_erase(vmsname);
@@ -1874,18 +1880,18 @@ mp_do_kill_file(pTHX_ const char *name, int dirflag)
         rmsts = -1;
         /* We blew it - dir with files in it, no write priv for
          * parent directory, etc.  Put things back the way they were. */
-        if (!((aclsts = sys$change_acl(0,&type,&fildsc,dellst,0,0,0)) & 1))
+        if (!((aclsts = sys$change_acl(0,&type,&fildsc,dellst,0,0,0,0,0)) & 1))
           goto yourroom;
         if (fndsts & 1) {
           addlst[0].bufadr = &oldace;
-          if (!((aclsts = sys$change_acl(0,&type,&fildsc,addlst,0,0,&cxt)) & 1))
+          if (!((aclsts = sys$change_acl(0,&type,&fildsc,addlst,0,0,&cxt,0,0)) & 1))
             goto yourroom;
         }
       }
     }
 
     yourroom:
-    fndsts = sys$change_acl(0,&type,&fildsc,ulklst,0,0,0);
+    fndsts = sys$change_acl(0,&type,&fildsc,ulklst,0,0,0,0,0);
     /* We just deleted it, so of course it's not there.  Some versions of
      * VMS seem to return success on the unlock operation anyhow (after all
      * the unlock is successful), but others don't.
@@ -2311,7 +2317,7 @@ Perl_my_kill(int pid, int sig)
      /* sig 0 means validate the PID */
     /*------------------------------*/
     if (sig == 0) {
-        const unsigned long int jpicode = JPI$_PID;
+        const unsigned int jpicode = JPI$_PID;
         pid_t ret_pid;
         int status;
         status = lib$getjpi(&jpicode, &pid, NULL, &ret_pid, NULL, NULL);
@@ -2380,8 +2386,8 @@ int
 Perl_my_killpg(pid_t master_pid, int signum)
 {
     int pid, status, i;
-    unsigned long int jpi_context;
-    unsigned short int iosb[4];
+    unsigned int jpi_context;
+    struct _iosb iosb;
     struct itmlst_3  il3[3];
 
     /* All processes on the system?  Seems dangerous, but it looks
@@ -2408,9 +2414,9 @@ Perl_my_killpg(pid_t master_pid, int signum)
         il3[i].bufadr   = NULL;
         il3[i++].retlen = NULL;
 
-        status = sys$getjpiw(EFN$C_ENF, NULL, NULL, il3, iosb, NULL, 0);
+        status = sys$getjpiw(EFN$C_ENF, NULL, NULL, il3, &iosb, NULL, 0);
         if ($VMS_STATUS_SUCCESS(status))
-            status = iosb[0];
+            status = iosb.iosb$w_status;
 
         switch (status) {
             case SS$_NORMAL:
@@ -2485,8 +2491,8 @@ Perl_my_killpg(pid_t master_pid, int signum)
     while (1) {
         /* Find the next process...
          */
-        status = sys$getjpiw( EFN$C_ENF, &jpi_context, NULL, il3, iosb, NULL, 0);
-        if ($VMS_STATUS_SUCCESS(status)) status = iosb[0];
+        status = sys$getjpiw( EFN$C_ENF, &jpi_context, NULL, il3, &iosb, NULL, 0);
+        if ($VMS_STATUS_SUCCESS(status)) status = iosb.iosb$w_status;
 
         switch (status) {
             case SS$_NORMAL:
@@ -2519,7 +2525,7 @@ Perl_my_killpg(pid_t master_pid, int signum)
 
     /* Release context-related resources.
      */
-    (void) sys$process_scan(&jpi_context);
+    (void) sys$process_scan(&jpi_context, 0);
 
     if (status != SS$_NOMOREPROC)
         return -1;
@@ -2863,14 +2869,14 @@ Perl_unix_status_to_vms(int unix_status)
 static void
 create_mbx(unsigned short int *chan, struct dsc$descriptor_s *namdsc)
 {
-  unsigned long int mbxbufsiz;
-  static unsigned long int syssize = 0;
-  unsigned long int dviitm = DVI$_DEVNAM;
+  unsigned int mbxbufsiz;
+  static unsigned int syssize = 0;
+  int dviitm = DVI$_DEVNAM;
   char csize[LNM$C_NAMLENGTH+1];
   int sts;
 
   if (!syssize) {
-    unsigned long syiitm = SYI$_MAXBUF;
+    int syiitm = SYI$_MAXBUF;
     /*
      * Get the SYSGEN parameter MAXBUF
      *
@@ -2912,16 +2918,10 @@ typedef struct _srqp*          pRQE;
 typedef struct _tochildbuf      CBuf;
 typedef struct _tochildbuf*    pCBuf;
 
-struct _iosb {
-    unsigned short status;
-    unsigned short count;
-    unsigned long  dvispec;
-};
-
 #pragma member_alignment save
 #pragma nomember_alignment quadword
 struct _srqp {          /* VMS self-relative queue entry */
-    unsigned long qptr[2];
+    unsigned int qptr[2];
 };
 #pragma member_alignment restore
 static RQE  RQE_ZERO = {0,0};
@@ -2962,14 +2962,14 @@ struct _pipe {
 struct pipe_details
 {
     pInfo           next;
-    PerlIO *fp;  /* file pointer to pipe mailbox */
-    int useFILE; /* using stdio, not perlio */
-    int pid;   /* PID of subprocess */
-    int mode;  /* == 'r' if pipe open for reading */
-    int done;  /* subprocess has completed */
-    int waiting; /* waiting for completion/closure */
+    PerlIO *fp;                     /* file pointer to pipe mailbox */
+    int useFILE;                    /* using stdio, not perlio */
+    unsigned int pid;               /* PID of subprocess */
+    int mode;                       /* == 'r' if pipe open for reading */
+    int done;                       /* subprocess has completed */
+    int waiting;                    /* waiting for completion/closure */
     int             closing;        /* my_pclose is closing this pipe */
-    unsigned long   completion;     /* termination status of subprocess */
+    unsigned int    completion;     /* termination status of subprocess */
     pPipe           in;             /* pipe in to sub */
     pPipe           out;            /* pipe out of sub */
     pPipe           err;            /* pipe of sub's sys$error */
@@ -2983,10 +2983,10 @@ struct pipe_details
 struct exit_control_block
 {
     struct exit_control_block *flink;
-    unsigned long int (*exit_routine)(void);
-    unsigned long int arg_count;
-    unsigned long int *status_address;
-    unsigned long int exit_status;
+    unsigned int (*exit_routine)(void);
+    unsigned int arg_count;
+    unsigned int *status_address;
+    unsigned int exit_status;
 }; 
 
 typedef struct _closed_pipes    Xpipe;
@@ -2994,7 +2994,7 @@ typedef struct _closed_pipes*  pXpipe;
 
 struct _closed_pipes {
     int             pid;            /* PID of subprocess */
-    unsigned long   completion;     /* termination status of subprocess */
+    unsigned int    completion;     /* termination status of subprocess */
 };
 #define NKEEPCLOSED 50
 static Xpipe closed_list[NKEEPCLOSED];
@@ -3004,9 +3004,9 @@ static int   closed_num = 0;
 #define RETRY_DELAY     "0 ::0.20"
 #define MAX_RETRY              50
 
-static int pipe_ef = 0;          /* first call to safe_popen inits these*/
-static unsigned long mypid;
-static unsigned long delaytime[2];
+static unsigned int pipe_ef = 0;    /* first call to safe_popen inits these*/
+static unsigned int mypid;
+static struct _generic_64 delaytime;
 
 static pInfo open_pipes = NULL;
 static $DESCRIPTOR(nl_desc, "NL:");
@@ -3015,11 +3015,11 @@ static $DESCRIPTOR(nl_desc, "NL:");
 
 
 
-static unsigned long int
+static unsigned int
 pipe_exit_routine(void)
 {
     pInfo info;
-    unsigned long int retsts = SS$_NORMAL;
+    unsigned int retsts = SS$_NORMAL;
     int sts, did_stuff, j;
 
    /* 
@@ -3204,7 +3204,8 @@ popen_completion_ast(pInfo info)
   if (info->in && !info->in_done) {               /* only for mode=w */
         if (info->in->shut_on_empty && info->in->need_wake) {
             info->in->need_wake = FALSE;
-            _ckvmssts_noperl(sys$dclast(pipe_tochild2_ast,info->in,0));
+            _ckvmssts_noperl(sys$dclast(pipe_tochild2_ast,
+                                        (unsigned __int64) info->in,0));
         } else {
             _ckvmssts_noperl(sys$cancel(info->in->chan_out));
         }
@@ -3227,7 +3228,7 @@ popen_completion_ast(pInfo info)
 
 }
 
-static unsigned long int setup_cmddsc(pTHX_ const char *cmd, int check_img, int *suggest_quote, struct dsc$descriptor_s **pvmscmd);
+static unsigned int setup_cmddsc(pTHX_ const char *cmd, int check_img, int *suggest_quote, struct dsc$descriptor_s **pvmscmd);
 static void vms_execfree(struct dsc$descriptor_s *vmscmd);
 static void pipe_infromchild_ast(pPipe p);
 
@@ -3252,7 +3253,7 @@ pipe_tochild_setup(pTHX_ char *rmbx, char *wmbx)
                                       DSC$K_CLASS_S, mbx1},
                             d_mbx2 = {sizeof mbx2, DSC$K_DTYPE_T,
                                       DSC$K_CLASS_S, mbx2};
-    unsigned int dviitm = DVI$_DEVBUFSIZ;
+    int dviitm = DVI$_DEVBUFSIZ;
     int j, n;
 
     n = sizeof(Pipe);
@@ -3267,8 +3268,8 @@ pipe_tochild_setup(pTHX_ char *rmbx, char *wmbx)
     p->need_wake     = FALSE;
     p->type          = 0;
     p->retry         = 0;
-    p->iosb.status   = SS$_NORMAL;
-    p->iosb2.status  = SS$_NORMAL;
+    p->iosb.iosb$w_status   = SS$_NORMAL;
+    p->iosb2.iosb$w_status  = SS$_NORMAL;
     p->free          = RQE_ZERO;
     p->wait          = RQE_ZERO;
     p->curr          = 0;
@@ -3283,7 +3284,7 @@ pipe_tochild_setup(pTHX_ char *rmbx, char *wmbx)
     for (j = 0; j < INITIAL_TOCHILDQUEUE; j++) {
         _ckvmssts_noperl(lib$get_vm(&n, &b));
         b->buf = (char *) b + sizeof(CBuf);
-        _ckvmssts_noperl(lib$insqhi(b, &p->free));
+        _ckvmssts_noperl(lib$insqhi((unsigned int *) b, (__int64 *) &p->free));
     }
 
     pipe_tochild2_ast(p);
@@ -3299,7 +3300,7 @@ static void
 pipe_tochild1_ast(pPipe p)
 {
     pCBuf b = p->curr;
-    int iss = p->iosb.status;
+    int iss = p->iosb.iosb$w_status;
     int eof = (iss == SS$_ENDOFFILE);
     int sts;
 #ifdef MULTIPLICITY
@@ -3316,11 +3317,13 @@ pipe_tochild1_ast(pPipe p)
         }
 
         b->eof  = eof;
-        b->size = p->iosb.count;
-        _ckvmssts_noperl(sts = lib$insqhi(b, &p->wait));
+        b->size = p->iosb.iosb$w_bcnt;
+        _ckvmssts_noperl(sts = lib$insqhi((unsigned int *) b,
+                                          (__int64 *) &p->wait));
         if (p->need_wake) {
             p->need_wake = FALSE;
-            _ckvmssts_noperl(sys$dclast(pipe_tochild2_ast,p,0));
+            _ckvmssts_noperl(sys$dclast(pipe_tochild2_ast,
+                                        (unsigned __int64) p,0));
         }
     } else {
         p->retry = 1;   /* initial call */
@@ -3329,14 +3332,14 @@ pipe_tochild1_ast(pPipe p)
     if (eof) {                  /* flush the free queue, return when done */
         int n = sizeof(CBuf) + p->bufsize;
         while (1) {
-            iss = lib$remqti(&p->free, &b);
+            iss = lib$remqti((__int64 *) &p->free, &b);
             if (iss == LIB$_QUEWASEMP) return;
             _ckvmssts_noperl(iss);
             _ckvmssts_noperl(lib$free_vm(&n, &b));
         }
     }
 
-    iss = lib$remqti(&p->free, &b);
+    iss = lib$remqti((__int64 *) &p->free, &b);
     if (iss == LIB$_QUEWASEMP) {
         int n = sizeof(CBuf) + p->bufsize;
         _ckvmssts_noperl(lib$get_vm(&n, &b));
@@ -3349,7 +3352,7 @@ pipe_tochild1_ast(pPipe p)
     iss = sys$qio(0,p->chan_in,
              IO$_READVBLK|(p->shut_on_empty ? IO$M_NOWAIT : 0),
              &p->iosb,
-             pipe_tochild1_ast, p, b->buf, p->bufsize, 0, 0, 0, 0);
+             pipe_tochild1_ast, (__int64) p, b->buf, p->bufsize, 0, 0, 0, 0);
     if (iss == SS$_ENDOFFILE && p->shut_on_empty) iss = SS$_NORMAL;
     _ckvmssts_noperl(iss);
 }
@@ -3362,7 +3365,7 @@ static void
 pipe_tochild2_ast(pPipe p)
 {
     pCBuf b = p->curr2;
-    int iss = p->iosb2.status;
+    int iss = p->iosb2.iosb$w_status;
     int n = sizeof(CBuf) + p->bufsize;
     int done = (p->info && p->info->done) ||
               iss == SS$_CANCEL || iss == SS$_ABORT;
@@ -3375,12 +3378,13 @@ pipe_tochild2_ast(pPipe p)
             if (p->shut_on_empty) {
                 _ckvmssts_noperl(lib$free_vm(&n, &b));
             } else {
-                _ckvmssts_noperl(lib$insqhi(b, &p->free));
+                _ckvmssts_noperl(lib$insqhi((unsigned int *) b,
+                                            (__int64 *) &p->free));
             }
             p->type = 0;
         }
 
-        iss = lib$remqti(&p->wait, &b);
+        iss = lib$remqti((__int64 *) &p->wait, &b);
         if (iss == LIB$_QUEWASEMP) {
             if (p->shut_on_empty) {
                 if (done) {
@@ -3389,7 +3393,8 @@ pipe_tochild2_ast(pPipe p)
                     _ckvmssts_noperl(sys$setef(pipe_ef));
                 } else {
                     _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_WRITEOF,
-                        &p->iosb2, pipe_tochild2_ast, p, 0, 0, 0, 0, 0, 0));
+                        &p->iosb2, pipe_tochild2_ast, (__int64) p,
+                        0, 0, 0, 0, 0, 0));
                 }
                 return;
             }
@@ -3404,10 +3409,12 @@ pipe_tochild2_ast(pPipe p)
     p->curr2 = b;
     if (b->eof) {
         _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_WRITEOF,
-            &p->iosb2, pipe_tochild2_ast, p, 0, 0, 0, 0, 0, 0));
+            &p->iosb2, pipe_tochild2_ast, (__int64) p,
+            0, 0, 0, 0, 0, 0));
     } else {
         _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_WRITEVBLK,
-            &p->iosb2, pipe_tochild2_ast, p, b->buf, b->size, 0, 0, 0, 0));
+            &p->iosb2, pipe_tochild2_ast, (__int64) p, b->buf, b->size,
+            0, 0, 0, 0));
     }
 
     return;
@@ -3424,7 +3431,7 @@ pipe_infromchild_setup(pTHX_ char *rmbx, char *wmbx)
                                       DSC$K_CLASS_S, mbx1},
                             d_mbx2 = {sizeof mbx2, DSC$K_DTYPE_T,
                                       DSC$K_CLASS_S, mbx2};
-    unsigned int dviitm = DVI$_DEVBUFSIZ;
+    int dviitm = DVI$_DEVBUFSIZ;
 
     int n = sizeof(Pipe);
     _ckvmssts_noperl(lib$get_vm(&n, &p));
@@ -3437,7 +3444,7 @@ pipe_infromchild_setup(pTHX_ char *rmbx, char *wmbx)
     p->shut_on_empty = FALSE;
     p->info   = 0;
     p->type   = 0;
-    p->iosb.status = SS$_NORMAL;
+    p->iosb.iosb$w_status = SS$_NORMAL;
 #if defined(MULTIPLICITY)
     p->thx = aTHX;
 #endif
@@ -3451,10 +3458,10 @@ pipe_infromchild_setup(pTHX_ char *rmbx, char *wmbx)
 static void
 pipe_infromchild_ast(pPipe p)
 {
-    int iss = p->iosb.status;
+    int iss = p->iosb.iosb$w_status;
     int eof = (iss == SS$_ENDOFFILE);
-    int myeof = (eof && (p->iosb.dvispec == mypid || p->iosb.dvispec == 0));
-    int kideof = (eof && (p->iosb.dvispec == p->info->pid));
+    int myeof = (eof && (p->iosb.iosb$l_pid == mypid || p->iosb.iosb$l_pid == 0));
+    int kideof = (eof && (p->iosb.iosb$l_pid == p->info->pid));
 #if defined(MULTIPLICITY)
     pTHX = p->thx;
 #endif
@@ -3481,15 +3488,15 @@ pipe_infromchild_ast(pPipe p)
         if (p->chan_out) {
             if (myeof || kideof) {      /* pass EOF to parent */
                 _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_WRITEOF, &p->iosb,
-                                         pipe_infromchild_ast, p,
+                                         pipe_infromchild_ast, (__int64) p,
                                          0, 0, 0, 0, 0, 0));
                 return;
             } else if (eof) {       /* eat EOF --- fall through to read*/
 
             } else {                /* transmit data */
                 _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_WRITEVBLK,&p->iosb,
-                                         pipe_infromchild_ast,p,
-                                         p->buf, p->iosb.count, 0, 0, 0, 0));
+                                         pipe_infromchild_ast, (__int64) p,
+                                         p->buf, p->iosb.iosb$w_bcnt, 0, 0, 0, 0));
                 return;
             }
         }
@@ -3514,16 +3521,17 @@ pipe_infromchild_ast(pPipe p)
         p->type = 1;
         if (p->chan_in) {
             iss = sys$qio(0,p->chan_in,IO$_READVBLK|(p->shut_on_empty ? IO$M_NOW : 0),&p->iosb,
-                          pipe_infromchild_ast,p,
+                          pipe_infromchild_ast, (__int64) p,
                           p->buf, p->bufsize, 0, 0, 0, 0);
             if (p->shut_on_empty && iss == SS$_ENDOFFILE) iss = SS$_NORMAL;
             _ckvmssts_noperl(iss);
         } else {           /* send EOFs for extra reads */
-            p->iosb.status = SS$_ENDOFFILE;
-            p->iosb.dvispec = 0;
+            p->iosb.iosb$w_status = SS$_ENDOFFILE;
+            p->iosb.iosb$l_pid = 0;
             _ckvmssts_noperl(sys$qio(0,p->chan_out,IO$_SETMODE|IO$M_READATTN,
                                      0, 0, 0,
-                                     pipe_infromchild_ast, p, 0, 0, 0, 0));
+                                     pipe_infromchild_ast,
+                                     (__int64) p, 0, 0, 0, 0));
         }
     }
 }
@@ -3533,7 +3541,7 @@ pipe_mbxtofd_setup(pTHX_ int fd, char *out)
 {
     pPipe p;
     char mbx[64];
-    unsigned long dviitm = DVI$_DEVBUFSIZ;
+    int dviitm = DVI$_DEVBUFSIZ;
     struct stat s;
     struct dsc$descriptor_s d_mbx = {sizeof mbx, DSC$K_DTYPE_T,
                                       DSC$K_CLASS_S, mbx};
@@ -3541,14 +3549,14 @@ pipe_mbxtofd_setup(pTHX_ int fd, char *out)
 
     /* things like terminals and mbx's don't need this filter */
     if (fd && fstat(fd,&s) == 0) {
-        unsigned long devchar;
+        unsigned int devchar;
         char device[65];
         unsigned short dev_len;
         struct dsc$descriptor_s d_dev;
         char * cptr;
         struct item_list_3 items[3];
         int status;
-        unsigned short dvi_iosb[4];
+        struct _iosb dvi_iosb;
 
         cptr = getname(fd, out, 1);
         if (cptr == NULL) _ckvmssts_noperl(SS$_NOSUCHDEV);
@@ -3569,9 +3577,9 @@ pipe_mbxtofd_setup(pTHX_ int fd, char *out)
         items[2].code = 0;
 
         status = sys$getdviw
-                (NO_EFN, 0, &d_dev, items, dvi_iosb, NULL, NULL, NULL);
+                (NO_EFN, 0, &d_dev, items, &dvi_iosb, NULL, 0, NULL);
         _ckvmssts_noperl(status);
-        if ($VMS_STATUS_SUCCESS(dvi_iosb[0])) {
+        if ($VMS_STATUS_SUCCESS(dvi_iosb.iosb$w_status)) {
             device[dev_len] = 0;
 
             if (!(devchar & DEV$M_DIR)) {
@@ -3593,7 +3601,7 @@ pipe_mbxtofd_setup(pTHX_ int fd, char *out)
     strcpy(out, mbx);
 
     _ckvmssts_noperl(sys$qio(0, p->chan_in, IO$_READVBLK, &p->iosb,
-                             pipe_mbxtofd_ast, p,
+                             pipe_mbxtofd_ast, (__int64) p,
                              p->buf, p->bufsize, 0, 0, 0, 0));
 
     return p;
@@ -3602,11 +3610,11 @@ pipe_mbxtofd_setup(pTHX_ int fd, char *out)
 static void
 pipe_mbxtofd_ast(pPipe p)
 {
-    int iss = p->iosb.status;
+    int iss = p->iosb.iosb$w_status;
     int done = p->info->done;
     int iss2;
     int eof = (iss == SS$_ENDOFFILE);
-    int myeof = eof && ((p->iosb.dvispec == mypid)||(p->iosb.dvispec == 0));
+    int myeof = eof && ((p->iosb.iosb$l_pid == mypid)||(p->iosb.iosb$l_pid == 0));
     int err = !(iss&1) && !eof;
 #if defined(MULTIPLICITY)
     pTHX = p->thx;
@@ -3621,11 +3629,12 @@ pipe_mbxtofd_ast(pPipe p)
     }
 
     if (!err && !eof) {             /* good data to send to file */
-        iss2 = write(p->fd_out, p->buf, p->iosb.count);
+        iss2 = write(p->fd_out, p->buf, p->iosb.iosb$w_bcnt);
         if (iss2 < 0) {
             p->retry++;
             if (p->retry < MAX_RETRY) {
-                _ckvmssts_noperl(sys$setimr(0,delaytime,pipe_mbxtofd_ast,p));
+                _ckvmssts_noperl(sys$setimr(0,&delaytime,pipe_mbxtofd_ast,
+                                            (__int64)p,0));
                 return;
             }
         }
@@ -3636,7 +3645,7 @@ pipe_mbxtofd_ast(pPipe p)
 
 
     iss = sys$qio(0, p->chan_in, IO$_READVBLK|(p->shut_on_empty ? IO$M_NOW : 0), &p->iosb,
-          pipe_mbxtofd_ast, p,
+          pipe_mbxtofd_ast, (__int64) p,
           p->buf, p->bufsize, 0, 0, 0, 0);
     if (p->shut_on_empty && (iss == SS$_ENDOFFILE)) iss = SS$_NORMAL;
     _ckvmssts_noperl(iss);
@@ -3913,16 +3922,16 @@ vmspipe_tempfile(pTHX)
 static int
 vms_is_syscommand_xterm(void)
 {
-    const static struct dsc$descriptor_s syscommand_dsc = 
+    static struct dsc$descriptor_s syscommand_dsc = 
       { 11, DSC$K_DTYPE_T, DSC$K_CLASS_S, "SYS$COMMAND" };
 
-    const static struct dsc$descriptor_s decwdisplay_dsc = 
+    static struct dsc$descriptor_s decwdisplay_dsc = 
       { 12, DSC$K_DTYPE_T, DSC$K_CLASS_S, "DECW$DISPLAY" };
 
     struct item_list_3 items[2];
-    unsigned short dvi_iosb[4];
-    unsigned long devchar;
-    unsigned long devclass;
+    struct _iosb dvi_iosb;
+    unsigned int devchar;
+    unsigned int devclass;
     int status;
 
     /* Very simple check to guess if sys$command is a decterm? */
@@ -3935,10 +3944,10 @@ vms_is_syscommand_xterm(void)
     items[1].code = 0;
 
     status = sys$getdviw
-        (NO_EFN, 0, &decwdisplay_dsc, items, dvi_iosb, NULL, NULL, NULL);
+        (NO_EFN, 0, &decwdisplay_dsc, items, &dvi_iosb, NULL, 0, NULL);
 
     if ($VMS_STATUS_SUCCESS(status)) {
-        status = dvi_iosb[0];
+        status = dvi_iosb.iosb$w_status;
     }
 
     if (!$VMS_STATUS_SUCCESS(status)) {
@@ -3958,10 +3967,10 @@ vms_is_syscommand_xterm(void)
     items[1].code = 0;
 
     status = sys$getdviw
-        (NO_EFN, 0, &syscommand_dsc, items, dvi_iosb, NULL, NULL, NULL);
+        (NO_EFN, 0, &syscommand_dsc, items, &dvi_iosb, NULL, 0, NULL);
 
     if ($VMS_STATUS_SUCCESS(status)) {
-        status = dvi_iosb[0];
+        status = dvi_iosb.iosb$w_status;
     }
 
     if (!$VMS_STATUS_SUCCESS(status)) {
@@ -3994,7 +4003,7 @@ create_forked_xterm(pTHX_ const char *cmd, const char *mode)
     char mbx1[64];
     unsigned short p_chan;
     int n;
-    unsigned short iosb[4];
+    struct _iosb iosb;
     const char * cust_str =
         "DECW$TERMINAL.iconName:\tPerl Dbg\nDECW$TERMINAL.title:\t%40s\n";
     struct dsc$descriptor_s d_mbx1 = {sizeof mbx1, DSC$K_DTYPE_T,
@@ -4150,7 +4159,7 @@ create_forked_xterm(pTHX_ const char *cmd, const char *mode)
 
     /* write the name of the created terminal to the mailbox */
     status = sys$qiow(NO_EFN, p_chan, IO$_WRITEVBLK|IO$M_NOW,
-            iosb, NULL, NULL, device_name, device_name_len, 0, 0, 0, 0);
+            &iosb, NULL, 0, device_name, device_name_len, 0, 0, 0, 0);
 
     if (!$VMS_STATUS_SUCCESS(status)) {
         SETERRNO(EVMSERR, status);
@@ -4180,7 +4189,7 @@ safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
 {
     static int handler_set_up = FALSE;
     PerlIO * ret_fp;
-    unsigned long int sts, flags = CLI$M_NOWAIT;
+    unsigned int sts, flags = CLI$M_NOWAIT;
     /* The use of a GLOBAL table (as was done previously) rendered
      * Perl's qx() or `` unusable from a C<$ SET SYMBOL/SCOPE=NOGLOBAL> DCL
      * environment.  Hence we've switched to LOCAL symbol table.
@@ -4237,11 +4246,11 @@ safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
     if (!pipe_ef) {
         _ckvmssts_noperl(sys$setast(0));
         if (!pipe_ef) {
-            unsigned long int pidcode = JPI$_PID;
+            int pidcode = JPI$_PID;
             $DESCRIPTOR(d_delay, RETRY_DELAY);
             _ckvmssts_noperl(lib$get_ef(&pipe_ef));
             _ckvmssts_noperl(lib$getjpi(&pidcode,0,0,&mypid,0,0));
-            _ckvmssts_noperl(sys$bintim(&d_delay, delaytime));
+            _ckvmssts_noperl(sys$bintim(&d_delay, &delaytime));
         }
         if (!handler_set_up) {
           _ckvmssts_noperl(sys$dclexh(&pipe_exitblock));
@@ -4577,7 +4586,7 @@ Perl_my_popen(pTHX_ const char *cmd, const char *mode)
 static I32
 my_pclose_pinfo(pTHX_ pInfo info) {
 
-    unsigned long int retsts;
+    unsigned int retsts;
     int done, n;
     pInfo next, last;
 
@@ -4610,7 +4619,8 @@ my_pclose_pinfo(pTHX_ pInfo info) {
         if (info->out->chan_out) {
             _ckvmssts(sys$cancel(info->out->chan_out));
             if (!info->out->chan_in) {   /* EOF generation, need AST */
-                _ckvmssts(sys$dclast(pipe_infromchild_ast,info->out,0));
+                _ckvmssts(sys$dclast(pipe_infromchild_ast,
+                                     (unsigned __int64)info->out,0));
             }
         }
      }
@@ -4789,10 +4799,11 @@ Perl_my_waitpid(pTHX_ Pid_t pid, int *statusp, int flags)
 
     {
       $DESCRIPTOR(intdsc,"0 00:00:01");
-      unsigned long int ownercode = JPI$_OWNER, ownerpid;
-      unsigned long int pidcode = JPI$_PID, mypid;
-      unsigned long int interval[2];
-      unsigned int jpi_iosb[2];
+      int ownercode = JPI$_OWNER, ownerpid;
+      int pidcode = JPI$_PID, mypid;
+      struct _generic_64 interval;
+      struct _iosb jpi_iosb;
+
       struct itmlst_3 jpilist[2] = { 
           {sizeof(ownerpid),        JPI$_OWNER, &ownerpid,        0},
           {                      0,         0,                 0, 0} 
@@ -4811,8 +4822,8 @@ Perl_my_waitpid(pTHX_ Pid_t pid, int *statusp, int flags)
        * process doesn't exist or I don't have the privs to look at it, 
        * I can go home early.
        */
-      sts = sys$getjpiw(0,&pid,NULL,&jpilist,&jpi_iosb,NULL,NULL);
-      if (sts & 1) sts = jpi_iosb[0];
+      sts = sys$getjpiw(0,(unsigned int *)&pid,NULL,&jpilist,&jpi_iosb,NULL,0);
+      if (sts & 1) sts = jpi_iosb.iosb$w_status;
       if (!(sts & 1)) {
         switch (sts) {
             case SS$_NONEXPR:
@@ -4839,9 +4850,9 @@ Perl_my_waitpid(pTHX_ Pid_t pid, int *statusp, int flags)
 
       /* simply check on it once a second until it's not there anymore. */
 
-      _ckvmssts(sys$bintim(&intdsc,interval));
+      _ckvmssts(sys$bintim(&intdsc,&interval));
       while ((sts=lib$getjpi(&ownercode,&pid,0,&ownerpid,0,0)) & 1) {
-            _ckvmssts(sys$schdwk(0,0,interval,0));
+            _ckvmssts(sys$schdwk(0,0,&interval,0));
             _ckvmssts(sys$hiber());
       }
       if (sts == SS$_NONEXPR) sts = SS$_NORMAL;
@@ -5008,9 +5019,9 @@ rms_erase(const char * vmsname)
 
 
 static int
-vms_rename_with_acl(pTHX_ const struct dsc$descriptor_s * vms_src_dsc,
-                    const struct dsc$descriptor_s * vms_dst_dsc,
-                    unsigned long flags)
+vms_rename_with_acl(pTHX_ struct dsc$descriptor_s * vms_src_dsc,
+                    struct dsc$descriptor_s * vms_dst_dsc,
+                    unsigned int flags)
 {
     /* VMS and UNIX handle file permissions differently and
      * the same ACL trick may be needed for renaming files,
@@ -5021,11 +5032,11 @@ vms_rename_with_acl(pTHX_ const struct dsc$descriptor_s * vms_src_dsc,
    /* I can not find online documentation for $change_acl
     * it appears to be replaced by $set_security some time ago */
 
-    const unsigned int access_mode = 0;
+    unsigned int access_mode = 0;
     $DESCRIPTOR(obj_file_dsc,"FILE");
     char *vmsname;
     char *rslt;
-    unsigned long int jpicode = JPI$_UIC;
+    int jpicode = JPI$_UIC;
     int aclsts, fndsts, rnsts = -1;
     unsigned int ctx = 0;
     struct dsc$descriptor_s fildsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
@@ -5035,8 +5046,8 @@ vms_rename_with_acl(pTHX_ const struct dsc$descriptor_s * vms_src_dsc,
         unsigned char myace$b_length;
         unsigned char myace$b_type;
         unsigned short int myace$w_flags;
-        unsigned long int myace$l_access;
-        unsigned long int myace$l_ident;
+        unsigned int myace$l_access;
+        unsigned int myace$l_ident;
     } newace = { sizeof(struct myacedef), ACE$C_KEYID, 0,
              ACE$M_READ | ACE$M_WRITE | ACE$M_DELETE | ACE$M_CONTROL,
              0},
@@ -5288,7 +5299,7 @@ Perl_rename(pTHX_ const char *src, const char * dst)
         char * vms_dst;
         int sts;
         char * ret_str;
-        unsigned long flags;
+        unsigned int flags;
         struct dsc$descriptor_s old_file_dsc;
         struct dsc$descriptor_s new_file_dsc;
 
@@ -5492,7 +5503,7 @@ int_rmsexpand
   struct FAB myfab = cc$rms_fab;
   rms_setup_nam(mynam);
   STRLEN speclen;
-  unsigned long int retsts, trimver, trimtype, haslower = 0, isunix = 0;
+  unsigned int retsts, trimver, trimtype, haslower = 0, isunix = 0;
   int sts;
 
   /* temp hack until UTF8 is actually implemented */
@@ -6013,7 +6024,7 @@ Perl_rmsexpand_utf8_ts(pTHX_ const char *spec, char *buf, const char *def,
 static char *
 int_fileify_dirspec(const char *dir, char *buf, int *utf8_fl)
 {
-    unsigned long int dirlen, retlen, hasfilename = 0;
+    unsigned int dirlen, retlen, hasfilename = 0;
     char *cp1, *cp2, *lastdir;
     char *trndir, *vmsdir;
     unsigned short int trnlnm_iter_count;
@@ -6258,7 +6269,7 @@ int_fileify_dirspec(const char *dir, char *buf, int *utf8_fl)
       char *esa, *esal, term, *cp;
       char *my_esa;
       int my_esa_len;
-      unsigned long int cmplen, haslower = 0;
+      unsigned int cmplen, haslower = 0;
       struct FAB dirfab = cc$rms_fab;
       rms_setup_nam(savnam);
       rms_setup_nam(dirnam);
@@ -8409,7 +8420,7 @@ int_tovmsspec(const char *path, char *rslt, int dir_flag, int * utf8_flag)
   char *lastdot;
   char *cp1;
   const char *cp2;
-  unsigned long int infront = 0, hasdir = 1;
+  unsigned int infront = 0, hasdir = 1;
   int rslt_len;
   int no_type_seen;
   char * v_spec, * r_spec, * d_spec, * n_spec, * e_spec, * vs_spec;
@@ -9312,8 +9323,8 @@ mp_getredirection(pTHX_ int *ac, char ***av)
     if (in == NULL && 1 == isapipe(0))
         {
         char mbxname[L_tmpnam];
-        long int bufsize;
-        long int dvi_item = DVI$_DEVBUFSIZ;
+        int bufsize;
+        int dvi_item = DVI$_DEVBUFSIZ;
         $DESCRIPTOR(mbxnam, "");
         $DESCRIPTOR(mbxdevnam, "");
 
@@ -9403,7 +9414,7 @@ mp_expand_wild_cards(pTHX_ char *item, struct list_item **head,
                      struct list_item **tail, int *count)
 {
     int expcount = 0;
-    unsigned long int context = 0;
+    unsigned int context = 0;
     int isunix = 0;
     int item_len = 0;
     char *had_version;
@@ -9414,7 +9425,7 @@ mp_expand_wild_cards(pTHX_ char *item, struct list_item **head,
     $DESCRIPTOR(filespec, "");
     $DESCRIPTOR(defaultspec, "SYS$DISK:[]");
     $DESCRIPTOR(resultspec, "");
-    unsigned long int lff_flags = 0;
+    unsigned int lff_flags = 0;
     int sts;
     int rms_sts;
 
@@ -9518,7 +9529,7 @@ mp_expand_wild_cards(pTHX_ char *item, struct list_item **head,
         }
     if (expcount == 0)
         add_item(head, tail, item, count);
-    _ckvmssts_noperl(lib$sfree1_dd(&resultspec));
+    _ckvmssts_noperl(lib$sfree1_dd((unsigned __int64 *)&resultspec));
     _ckvmssts_noperl(lib$find_file_end(&context));
 }
 
@@ -9585,7 +9596,7 @@ background_process(pTHX_ int argc, char **argv)
     char pidstring[80];
     $DESCRIPTOR(pidstr, "");
     int pid;
-    unsigned long int flags = 17, one = 1, retsts;
+    unsigned int flags = 17, one = 1, retsts;
     int len;
 
     len = my_strlcat(command, argv[0], sizeof(command));
@@ -9637,30 +9648,28 @@ vms_image_init(int *argcp, char ***argvp)
   int status;
   char eqv[LNM$C_NAMLENGTH+1] = "";
   unsigned int len, tabct = 8, tabidx = 0;
-  unsigned long int *mask, iosb[2], i, rlst[128], rsz;
-  unsigned long int iprv[(sizeof(union prvdef) + sizeof(unsigned long int) - 1) / sizeof(unsigned long int)];
-  unsigned short int dummy, rlen;
+  unsigned int *mask, i, rlst[128], rsz;
+  struct _iosb iosb;
+  struct _generic_64 iprv;
+  unsigned short int rlen;
   struct dsc$descriptor_s **tabvec;
 #if defined(MULTIPLICITY)
   pTHX = NULL;
 #endif
-  struct itmlst_3 jpilist[4] = { {sizeof iprv,    JPI$_IMAGPRIV, iprv, &dummy},
-                                 {sizeof rlst,  JPI$_RIGHTSLIST, rlst,  &rlen},
-                                 { sizeof rsz, JPI$_RIGHTS_SIZE, &rsz, &dummy},
-                                 {          0,                0,    0,      0} };
+  struct itmlst_3 jpilist[4] = { {sizeof iprv,    JPI$_IMAGPRIV, &iprv, NULL},
+                                 {sizeof rlst,  JPI$_RIGHTSLIST, rlst, &rlen},
+                                 { sizeof rsz, JPI$_RIGHTS_SIZE, &rsz,  NULL},
+                                 {          0,                0,    0,     0} };
 
 #ifdef KILL_BY_SIGPRC
     Perl_csighandler_init();
 #endif
 
-  _ckvmssts_noperl(sys$getjpiw(0,NULL,NULL,jpilist,iosb,NULL,NULL));
-  _ckvmssts_noperl(iosb[0]);
-  for (i = 0; i < sizeof iprv / sizeof(unsigned long int); i++) {
-    if (iprv[i]) {           /* Running image installed with privs? */
-      _ckvmssts_noperl(sys$setprv(0,iprv,0,NULL));       /* Turn 'em off. */
-      will_taint = TRUE;
-      break;
-    }
+  _ckvmssts_noperl(sys$getjpiw(0,NULL,NULL,jpilist,&iosb,NULL,0));
+  _ckvmssts_noperl(iosb.iosb$w_status);
+  if (iprv.gen64$q_quadword) {  /* Running image installed with privs? */
+    _ckvmssts_noperl(sys$setprv(0,&iprv,0,NULL));       /* Turn 'em off. */
+    will_taint = TRUE;
   }
   /* Rights identifiers might trigger tainting as well. */
   if (!will_taint && (rlen || rsz)) {
@@ -9675,22 +9684,22 @@ vms_image_init(int *argcp, char ***argvp)
       if (rsz <= jpilist[1].buflen) { 
          /* Perl_croak accvios when used this early in startup. */
          fprintf(stderr, "vms_image_init: $getjpiw refuses to store RIGHTSLIST of %u bytes in buffer of %u bytes.\n%s", 
-                         rsz, (unsigned long) jpilist[1].buflen,
+                         rsz, (unsigned int) jpilist[1].buflen,
                          "Check your rights database for corruption.\n");
          exit(SS$_ABORT);
       }
       if (jpilist[1].bufadr != rlst) PerlMem_free(jpilist[1].bufadr);
-      jpilist[1].bufadr = mask = (unsigned long int *) PerlMem_malloc(rsz * sizeof(unsigned long int));
+      jpilist[1].bufadr = mask = (unsigned int *) PerlMem_malloc(rsz * sizeof(unsigned int));
       if (mask == NULL) _ckvmssts_noperl(SS$_INSFMEM);
-      jpilist[1].buflen = rsz * sizeof(unsigned long int);
-      _ckvmssts_noperl(sys$getjpiw(0,NULL,NULL,&jpilist[1],iosb,NULL,NULL));
-      _ckvmssts_noperl(iosb[0]);
+      jpilist[1].buflen = rsz * sizeof(unsigned int);
+      _ckvmssts_noperl(sys$getjpiw(0,NULL,NULL,&jpilist[1],&iosb,NULL,0));
+      _ckvmssts_noperl(iosb.iosb$w_status);
     }
-    mask = (unsigned long int *)jpilist[1].bufadr;
+    mask = (unsigned int *)jpilist[1].bufadr;
     /* Check attribute flags for each identifier (2nd longword); protected
      * subsystem identifiers trigger tainting.
      */
-    for (i = 1; i < (rlen + sizeof(unsigned long int) - 1) / sizeof(unsigned long int); i += 2) {
+    for (i = 1; i < (rlen + sizeof(unsigned int) - 1) / sizeof(unsigned int); i += 2) {
       if (mask[i] & KGB$M_SUBSYSTEM) {
         will_taint = TRUE;
         break;
@@ -10170,7 +10179,7 @@ collectversions(pTHX_ DIR *dd)
     struct dirent *e;
     char *p, *text, *buff;
     int i;
-    unsigned long context, tmpsts;
+    unsigned int context, tmpsts;
 
     /* Convenient shorthand. */
     e = &dd->entry;
@@ -10198,8 +10207,8 @@ collectversions(pTHX_ DIR *dd)
     for (context = 0, e->vms_verscount = 0;
          e->vms_verscount < VERSIZE(e);
          e->vms_verscount++) {
-        unsigned long rsts;
-        unsigned long flags = 0;
+        unsigned int rsts;
+        unsigned int flags = 0;
 
 #ifdef VMS_LONGNAME_SUPPORT
         flags = LIB$M_FIL_LONG_NAMES;
@@ -10229,9 +10238,9 @@ Perl_readdir(pTHX_ DIR *dd)
 {
     struct dsc$descriptor_s	res;
     char *p, *buff;
-    unsigned long int tmpsts;
-    unsigned long rsts;
-    unsigned long flags = 0;
+    unsigned int tmpsts;
+    unsigned int rsts;
+    unsigned int flags = 0;
     char * v_spec, * r_spec, * d_spec, * n_spec, * e_spec, * vs_spec;
     int sts, v_len, r_len, d_len, n_len, e_len, vs_len;
 
@@ -10515,7 +10524,7 @@ setup_argstr(pTHX_ SV *really, SV **mark, SV **sp)
 }  /* end of setup_argstr() */
 
 
-static unsigned long int
+static unsigned int
 setup_cmddsc(pTHX_ const char *incmd, int check_img, int *suggest_quote,
                    struct dsc$descriptor_s **pvmscmd)
 {
@@ -10528,7 +10537,7 @@ setup_cmddsc(pTHX_ const char *incmd, int check_img, int *suggest_quote,
   struct dsc$descriptor_s resdsc;
   struct dsc$descriptor_s *vmscmd;
   struct dsc$descriptor_s imgdsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
-  unsigned long int cxt = 0, flags = 1, retsts = SS$_NORMAL;
+  unsigned int cxt = 0, flags = 1, retsts = SS$_NORMAL;
   char *s, *rest, *cp, *wordbreak;
   char * cmd;
   int cmdlen;
@@ -10965,7 +10974,7 @@ Perl_vms_do_exec(pTHX_ const char *cmd)
   }
 
   {                               /* no vfork - act VMSish */
-    unsigned long int retsts;
+    unsigned int retsts;
 
     TAINT_ENV();
     TAINT_PROPER("exec");
@@ -11008,7 +11017,7 @@ int do_spawn2(pTHX_ const char *, int);
 int
 Perl_do_aspawn(pTHX_ SV* really, SV** mark, SV** sp)
 {
-  unsigned long int sts;
+  unsigned int sts;
   char * cmd;
   int flags = 0;
 
@@ -11065,7 +11074,7 @@ Perl_do_spawn_nowait(pTHX_ char* cmd)
 int
 do_spawn2(pTHX_ const char *cmd, int flags)
 {
-  unsigned long int sts, substs;
+  unsigned int sts, substs;
 
   TAINT_ENV();
   TAINT_PROPER("spawn");
@@ -11323,7 +11332,7 @@ static char __empty[]= "";
 static struct passwd __passwd_empty=
     {(char *) __empty, (char *) __empty, 0, 0,
      (char *) __empty, (char *) __empty, (char *) __empty, (char *) __empty};
-static int contxt= 0;
+static unsigned int contxt= 0;
 static struct passwd __pwdcache;
 static char __pw_namecache[UAI$S_IDENT+1];
 
@@ -11337,7 +11346,7 @@ fillpasswd (pTHX_ const char *name, struct passwd *pwd)
         unsigned char length;
         char pw_gecos[UAI$S_OWNER+1];
     } owner;
-    static union uicdef uic;
+    static union _uicdef uic;
     static struct {
         unsigned char length;
         char pw_dir[UAI$S_DEFDEV+UAI$S_DEFDIR+1];
@@ -11354,7 +11363,7 @@ fillpasswd (pTHX_ const char *name, struct passwd *pwd)
 
     static unsigned short lowner, luic, ldefdev, ldefdir, ldefcli, lpwd;
     struct dsc$descriptor_s name_desc;
-    unsigned long int sts;
+    unsigned int sts;
 
     static struct itmlst_3 itmlst[]= {
         {UAI$S_OWNER+1,    UAI$_OWNER,  &owner,    &lowner},
@@ -11417,8 +11426,8 @@ struct passwd *
 Perl_my_getpwnam(pTHX_ const char *name)
 {
     struct dsc$descriptor_s name_desc;
-    union uicdef uic;
-    unsigned long int sts;
+    union _uicdef uic;
+    unsigned int sts;
                                   
     __pwdcache = __passwd_empty;
     if (!fillpasswd(aTHX_ name, &__pwdcache)) {
@@ -11427,7 +11436,7 @@ Perl_my_getpwnam(pTHX_ const char *name)
       name_desc.dsc$b_dtype=   DSC$K_DTYPE_T;
       name_desc.dsc$b_class=   DSC$K_CLASS_S;
       name_desc.dsc$a_pointer= (char *) name;
-      if ((sts = sys$asctoid(&name_desc, &uic, 0)) == SS$_NORMAL) {
+      if ((sts = sys$asctoid(&name_desc, &uic.uic$l_uic, 0)) == SS$_NORMAL) {
         __pwdcache.pw_uid= uic.uic$l_uic;
         __pwdcache.pw_gid= uic.uic$v_group;
       }
@@ -11454,14 +11463,14 @@ Perl_my_getpwnam(pTHX_ const char *name)
 struct passwd *
 Perl_my_getpwuid(pTHX_ Uid_t uid)
 {
-    const $DESCRIPTOR(name_desc,__pw_namecache);
+    $DESCRIPTOR(name_desc,__pw_namecache);
     unsigned short lname;
-    union uicdef uic;
-    unsigned long int status;
+    union _uicdef uic;
+    unsigned int status;
 
     if (uid == (unsigned int) -1) {
       do {
-        status = sys$idtoasc(-1, &lname, &name_desc, &uic, 0, &contxt);
+        status = sys$idtoasc(-1, &lname, &name_desc, &uic.uic$l_uic, 0, &contxt);
         if (status == SS$_NOSUCHID || status == RMS$_PRV) {
           set_vaxc_errno(status);
           set_errno(status == RMS$_PRV ? EACCES : EINVAL);
@@ -11694,7 +11703,7 @@ Perl_my_localtime(pTHX_ const time_t *timep)
  *              to VMS epoch  (01-JAN-1858 00:00:00.00)
  * in 100 ns intervals.
  */
-static const long int utime_baseadjust[2] = { 0x4beb4000, 0x7c9567 };
+static const int utime_baseadjust[2] = { 0x4beb4000, 0x7c9567 };
 
 /*{{{int my_utime(const char *path, const struct utimbuf *utimes)*/
 int
@@ -11763,7 +11772,7 @@ static mydev_t
 encode_dev (pTHX_ const char *dev)
 {
   int i;
-  unsigned long int f;
+  unsigned int f;
   mydev_t enc;
   char c;
   const char *q;
@@ -11773,7 +11782,7 @@ encode_dev (pTHX_ const char *dev)
 #if LOCKID_MASK
   {
     struct dsc$descriptor_s dev_desc;
-    unsigned long int status, lockid = 0, item = DVI$_LOCKID;
+    unsigned int status, lockid = 0, item = DVI$_LOCKID;
 
     /* For cluster-mounted disks, the disk lock identifier is unique, so we
        can try that first. */
@@ -11809,9 +11818,9 @@ encode_dev (pTHX_ const char *dev)
     else
       continue; /* Skip '$'s */
     i++;
-    if (i>6) break;     /* 36^7 is too large to fit in an unsigned long int */
+    if (i>6) break;     /* 36^7 is too large to fit in an unsigned int */
     if (i>1) f *= 36;
-    enc += f * (unsigned long int) c;
+    enc += f * (unsigned int) c;
   }
   return (enc | LOCKID_MASK);  /* May have already overflowed into bit 31 */
 
@@ -11856,10 +11865,12 @@ Perl_cando_by_name_int(pTHX_ I32 bit, bool effective, const char *fname, int opt
   struct dsc$descriptor_s usrdsc =
          {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, usrname};
   char *vmsname = NULL, *fileified = NULL;
-  unsigned long int objtyp = ACL$C_FILE, access, retsts, privused, iosb[2], flags;
+  unsigned int objtyp = ACL$C_FILE, access, retsts, privused, flags;
+  unsigned int profile_len;
+  struct _iosb iosb;
   unsigned short int retlen, trnlnm_iter_count;
   struct dsc$descriptor_s namdsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
-  union prvdef curprv;
+  union _prvdef curprv;
   struct itmlst_3 armlst[4] = {{sizeof access, CHP$_ACCESS, &access, &retlen},
          {sizeof privused, CHP$_PRIVUSED, &privused, &retlen},
          {sizeof flags, CHP$_FLAGS, &flags, &retlen},{0,0,0,0}};
@@ -11870,7 +11881,7 @@ Perl_cando_by_name_int(pTHX_ I32 bit, bool effective, const char *fname, int opt
          {0,0,0,0}};
   struct dsc$descriptor_s usrprodsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
   Stat_t st;
-  static int profile_context = -1;
+  static unsigned int profile_context = -1;
 
   if (!fname || !*fname) return FALSE;
 
@@ -11959,18 +11970,20 @@ Perl_cando_by_name_int(pTHX_ I32 bit, bool effective, const char *fname, int opt
    */
 
   /* get current process privs and username */
-  _ckvmssts_noperl(sys$getjpiw(0,0,0,jpilst,iosb,0,0));
-  _ckvmssts_noperl(iosb[0]);
+  _ckvmssts_noperl(sys$getjpiw(0,0,0,jpilst,&iosb,0,0));
+  _ckvmssts_noperl(iosb.iosb$w_status);
 
   /* find out the space required for the profile */
   _ckvmssts_noperl(sys$create_user_profile(&usrdsc,&usrprolst,0,0,
-                                    &usrprodsc.dsc$w_length,&profile_context));
+                                           &profile_len,&profile_context));
+  usrprodsc.dsc$w_length = profile_len;
 
   /* allocate space for the profile and get it filled in */
   usrprodsc.dsc$a_pointer = (char *)PerlMem_malloc(usrprodsc.dsc$w_length);
   if (usrprodsc.dsc$a_pointer == NULL) _ckvmssts_noperl(SS$_INSFMEM);
   _ckvmssts_noperl(sys$create_user_profile(&usrdsc,&usrprolst,0,usrprodsc.dsc$a_pointer,
-                                    &usrprodsc.dsc$w_length,&profile_context));
+                                           &profile_len,&profile_context));
+  usrprodsc.dsc$w_length = profile_len;
 
   /* use the profile to check access to the file; free profile & analyze results */
   retsts = sys$check_access(&objtyp,&namdsc,0,armlst,&profile_context,0,0,&usrprodsc);
@@ -12316,7 +12329,7 @@ Perl_rmscopy(pTHX_ const char *spec_in, const char *spec_out, int preserve_dates
 {
     char *vmsin, * vmsout, *esa, *esal, *esa_out, *esal_out,
          *rsa, *rsal, *rsa_out, *rsal_out, *ubf;
-    unsigned long int sts;
+    unsigned int sts;
     int dna_len;
     struct FAB fab_in, fab_out;
     struct RAB rab_in, rab_out;
@@ -12977,9 +12990,9 @@ Perl_vms_start_glob(pTHX_ SV *tmpglob, IO *io)
     STRLEN i;
     struct dsc$descriptor_s wilddsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
     struct dsc$descriptor_vs rsdsc;
-    unsigned long int cxt = 0, sts = 0, ok = 1, hasdir = 0;
-    unsigned long hasver = 0, isunix = 0;
-    unsigned long int lff_flags = 0;
+    unsigned int cxt = 0, sts = 0, ok = 1, hasdir = 0;
+    unsigned int hasver = 0, isunix = 0;
+    unsigned int lff_flags = 0;
     int rms_sts;
     int vms_old_glob = 1;
 
@@ -13454,7 +13467,7 @@ int vms_fid_to_name(char * outname, int outlen,
         char	   * st_dev;
         unsigned short st_ino[3];
         unsigned short old_st_mode;
-        unsigned long  padl[30];  /* plenty of room */
+        unsigned int   padl[30];  /* plenty of room */
     } statbuf;
 #pragma message restore
 #pragma member_alignment restore
@@ -13888,10 +13901,10 @@ vmsperl_set_features(void)
     int s;
     char val_str[LNM$C_NAMLENGTH+1];
 #if defined(JPI$_CASE_LOOKUP_PERM)
-    const unsigned long int jpicode1 = JPI$_CASE_LOOKUP_PERM;
-    const unsigned long int jpicode2 = JPI$_CASE_LOOKUP_IMAGE;
-    unsigned long case_perm;
-    unsigned long case_image;
+    int jpicode1 = JPI$_CASE_LOOKUP_PERM;
+    int jpicode2 = JPI$_CASE_LOOKUP_IMAGE;
+    unsigned int case_perm;
+    unsigned int case_image;
 #endif
 
     /* Allow an exception to bring Perl into the VMS debugger */

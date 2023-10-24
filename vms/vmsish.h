@@ -530,9 +530,9 @@ struct dirent {
     /* Handle returned by opendir(), used by the other routines.  You
      * are not supposed to care what's inside this structure. */
 typedef struct _dirdesc {
-    long			context;
+    unsigned int                context;
     int				flags;
-    unsigned long int           count;
+    unsigned int                count;
     char			*pattern;
     struct dirent		entry;
     struct dsc$descriptor_s	pat;
@@ -658,10 +658,10 @@ void	prime_env_iter (void);
 void	init_os_extras (void);
 int	Perl_vms_status_to_unix(int vms_status, int child_flag);
 int	Perl_unix_status_to_vms(int unix_status);
-int	Perl_vmstrnenv (const char *, char *, unsigned long int, struct dsc$descriptor_s **, unsigned long int);
+int	Perl_vmstrnenv (const char *, char *, unsigned int, struct dsc$descriptor_s **, unsigned int);
 char *	Perl_vms_realpath (pTHX_ const char *, char *, int *);
 char *	Perl_my_getenv (pTHX_ const char *, bool);
-int	Perl_my_trnlnm (pTHX_ const char *, char *, unsigned long int);
+int	Perl_my_trnlnm (pTHX_ const char *, char *, unsigned int);
 char *	Perl_tounixspec (pTHX_ const char *, char *);
 char *	Perl_tounixspec_ts (pTHX_ const char *, char *);
 char *	Perl_tounixspec_utf8 (pTHX_ const char *, char *, int *);

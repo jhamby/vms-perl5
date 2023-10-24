@@ -1575,9 +1575,9 @@ $   echo4 "adding /NOANSI_ALIAS/NoExceptions qualifier to ccflags."
 $   ccflags = ccflags + "/NOANSI_ALIAS/NoExceptions"
 $   IF (F$ELEMENT(0, "-", archname).EQS."VMS_x86_64")
 $   THEN
-$! Force 64-bit pointers on x86 C++
-$     echo4 "adding /Pointer=64=argv/Opt=(Lev=3) qualifier to ccflags for Clang."
-$     ccflags = ccflags + "/Pointer=64=argv/Opt=(Lev=3)"
+$! Force 32-bit pointers on x86 C++
+$     echo4 "adding /Pointer=32/Opt=(Lev=3) qualifier to ccflags for Clang."
+$     ccflags = ccflags + "/Pointer=32/Opt=(Lev=3)"
 $   ENDIF
 $   CALL Cxx_demangler_cleanup
 $ ELSE
@@ -2996,7 +2996,7 @@ $     Checkcc := "cxx/NoExceptions"
 $     IF (F$ELEMENT(0, "-", archname).EQS."VMS_x86_64")
 $     THEN
 $! Force 64-bit argv on x86
-$       Checkcc = "''Checkcc'" + "/Pointer=64=argv/Opt=(Lev=3)"
+$       Checkcc = "''Checkcc'" + "/Pointer=32/Opt=(Lev=3)"
 $     ENDIF
 $   ELSE
 $     Checkcc := "''Mcc'"
