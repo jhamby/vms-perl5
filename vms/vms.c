@@ -219,6 +219,15 @@ static struct dsc$descriptor_s *defenv[] = { &fildevdsc, &crtlenvdsc, NULL };
 static struct dsc$descriptor_s **env_tables = defenv;
 static bool will_taint = FALSE;  /* tainting active, but no PL_curinterp yet */
 
+static struct dsc$descriptor_s clisymdsc = 
+  { 6, DSC$K_DTYPE_T, DSC$K_CLASS_S, "CLISYM" };
+
+static struct dsc$descriptor_s nulldsc = 
+  { 6, DSC$K_DTYPE_T, DSC$K_CLASS_S, "_NLA0:" };
+
+static struct dsc$descriptor_s localdsc = 
+  { 6, DSC$K_DTYPE_T, DSC$K_CLASS_S, "_LOCAL" };
+
 /* True if we shouldn't treat barewords as logicals during directory */
 /* munching */ 
 static int no_translate_barewords;
@@ -272,7 +281,6 @@ static int vms_debug_fileify = 0;
 static int
 simple_trnlnm(const char * logname, char * value, int value_len)
 {
-    $DESCRIPTOR(table_dsc, "LNM$FILE_DEV");
     unsigned int attr = LNM$M_CASE_BLIND;
     struct dsc$descriptor_s name_dsc;
     int status;
@@ -285,7 +293,7 @@ simple_trnlnm(const char * logname, char * value, int value_len)
     name_dsc.dsc$b_dtype = DSC$K_DTYPE_T;
     name_dsc.dsc$b_class = DSC$K_CLASS_S;
 
-    status = sys$trnlnm(&attr, &table_dsc, &name_dsc, 0, itlst);
+    status = sys$trnlnm(&attr, &fildevdsc, &name_dsc, 0, itlst);
 
     if ($VMS_STATUS_SUCCESS(status)) {
 
@@ -895,7 +903,6 @@ Perl_vmstrnenv(const char *lnm, char *eqv, unsigned int idx,
     struct itmlst_3 lnmlst[3] = {{sizeof idx, LNM$_INDEX, &idx, 0},
                                  {LNM$C_NAMLENGTH, LNM$_STRING, eqv, &eqvlen},
                                  {0, 0, 0, 0}};
-    $DESCRIPTOR(crtlenv,"CRTL_ENV");  $DESCRIPTOR(clisym,"CLISYM");
 #if defined(MULTIPLICITY)
     pTHX = NULL;
     if (PL_curinterp) {
@@ -923,7 +930,7 @@ Perl_vmstrnenv(const char *lnm, char *eqv, unsigned int idx,
     if (!tabvec || !*tabvec) tabvec = env_tables;
 
     for (curtab = 0; tabvec[curtab]; curtab++) {
-      if (!str$case_blind_compare(tabvec[curtab],&crtlenv)) {
+      if (!str$case_blind_compare(tabvec[curtab],&crtlenvdsc)) {
         if (!ivenv && !secure) {
           char *eq;
           int i;
@@ -957,7 +964,7 @@ Perl_vmstrnenv(const char *lnm, char *eqv, unsigned int idx,
         }
       }
       else if ((tmpdsc.dsc$a_pointer = tabvec[curtab]->dsc$a_pointer) &&
-               !str$case_blind_compare(&tmpdsc,&clisym)) {
+               !str$case_blind_compare(&tmpdsc,&clisymdsc)) {
         if (!ivsym && !secure) {
           unsigned short int deflen = LNM$C_NAMLENGTH;
           struct dsc$descriptor_d eqvdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_D,0};
@@ -1287,10 +1294,10 @@ prime_env_iter(void)
   int i;
   bool have_sym = FALSE, have_lnm = FALSE;
   struct dsc$descriptor_s tmpdsc = {6,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
-  $DESCRIPTOR(cmddsc,cmd);    $DESCRIPTOR(nldsc,"_NLA0:");
-  $DESCRIPTOR(clidsc,"DCL");  $DESCRIPTOR(clitabdsc,"DCLTABLES");
-  $DESCRIPTOR(crtlenv,"CRTL_ENV");  $DESCRIPTOR(clisym,"CLISYM");
-  $DESCRIPTOR(local,"_LOCAL"); $DESCRIPTOR(mbxdsc,mbxnam); 
+  $DESCRIPTOR(cmddsc,cmd);
+  static $DESCRIPTOR(clidsc,"DCL");
+  static $DESCRIPTOR(clitabdsc,"DCLTABLES");
+  $DESCRIPTOR(mbxdsc,mbxnam); 
 #if defined(MULTIPLICITY)
   pTHX;
 #endif
@@ -1327,8 +1334,8 @@ prime_env_iter(void)
 
   for (i = 0; env_tables[i]; i++) {
      if (!have_sym && (tmpdsc.dsc$a_pointer = env_tables[i]->dsc$a_pointer) &&
-         !str$case_blind_compare(&tmpdsc,&clisym)) have_sym = 1;
-     if (!have_lnm && str$case_blind_compare(env_tables[i],&crtlenv)) have_lnm = 1;
+         !str$case_blind_compare(&tmpdsc,&clisymdsc)) have_sym = 1;
+     if (!have_lnm && str$case_blind_compare(env_tables[i],&crtlenvdsc)) have_lnm = 1;
   }
   if (have_sym || have_lnm) {
     int syiitm = SYI$_MAXBUF, dviitm = DVI$_DEVNAM;
@@ -1338,7 +1345,7 @@ prime_env_iter(void)
   }
 
   for (i--; i >= 0; i--) {
-    if (!str$case_blind_compare(env_tables[i],&crtlenv)) {
+    if (!str$case_blind_compare(env_tables[i],&crtlenvdsc)) {
       char *start;
       int j;
       /* Start at the end, so if there is a duplicate we keep the first one. */
@@ -1358,12 +1365,13 @@ prime_env_iter(void)
       continue;
     }
     else if ((tmpdsc.dsc$a_pointer = env_tables[i]->dsc$a_pointer) &&
-             !str$case_blind_compare(&tmpdsc,&clisym)) {
+             !str$case_blind_compare(&tmpdsc,&clisymdsc)) {
       my_strlcpy(cmd, "Show Symbol/Global *", sizeof(cmd));
       cmddsc.dsc$w_length = 20;
       if (env_tables[i]->dsc$w_length == 12 &&
           (tmpdsc.dsc$a_pointer = env_tables[i]->dsc$a_pointer + 6) &&
-          !str$case_blind_compare(&tmpdsc,&local)) my_strlcpy(cmd+12, "Local  *", sizeof(cmd)-12);
+          !str$case_blind_compare(&tmpdsc,&localdsc))
+        my_strlcpy(cmd+12, "Local  *", sizeof(cmd)-12);
       flags = defflags | CLI$M_NOLOGNAM;
     }
     else {
@@ -1381,7 +1389,7 @@ prime_env_iter(void)
      * to write multiple commands to a single subprocess.
      */
     do {
-      retsts = lib$spawn(&cmddsc,&nldsc,&mbxdsc,&flags,0,&subpid,&substs,
+      retsts = lib$spawn(&cmddsc,&nulldsc,&mbxdsc,&flags,0,&subpid,&substs,
                          0,&riseandshine,0,0,&clidsc,&clitabdsc);
       flags &= ~CLI$M_TRUSTED; /* Just in case we hit a really old version */
       defflags &= ~CLI$M_TRUSTED;
@@ -1505,8 +1513,6 @@ Perl_vmssetenv(pTHX_ const char *lnm, const char *eqv, struct dsc$descriptor_s *
     struct dsc$descriptor_s lnmdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,uplnm},
                             eqvdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0},
                             tmpdsc = {6,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
-    $DESCRIPTOR(crtlenv,"CRTL_ENV");  $DESCRIPTOR(clisym,"CLISYM");
-    $DESCRIPTOR(local,"_LOCAL");
 
     if (!lnm) {
         set_errno(EINVAL); set_vaxc_errno(SS$_IVLOGNAM);
@@ -1525,7 +1531,7 @@ Perl_vmssetenv(pTHX_ const char *lnm, const char *eqv, struct dsc$descriptor_s *
 
     if (!eqv) {  /* we're deleting n element */
       for (curtab = 0; tabvec[curtab]; curtab++) {
-        if (!ivenv && !str$case_blind_compare(tabvec[curtab],&crtlenv)) {
+        if (!ivenv && !str$case_blind_compare(tabvec[curtab],&crtlenvdsc)) {
         int i;
           for (i = 0; environ[i]; i++) { /* If it's an environ elt, reset */
             if ((cp1 = strchr(environ[i],'=')) && 
@@ -1538,11 +1544,11 @@ Perl_vmssetenv(pTHX_ const char *lnm, const char *eqv, struct dsc$descriptor_s *
           ivenv = 1; retsts = SS$_NOLOGNAM;
         }
         else if ((tmpdsc.dsc$a_pointer = tabvec[curtab]->dsc$a_pointer) &&
-                 !str$case_blind_compare(&tmpdsc,&clisym)) {
+                 !str$case_blind_compare(&tmpdsc,&clisymdsc)) {
           unsigned int symtype;
           if (tabvec[curtab]->dsc$w_length == 12 &&
               (tmpdsc.dsc$a_pointer = tabvec[curtab]->dsc$a_pointer + 6) &&
-              !str$case_blind_compare(&tmpdsc,&local)) 
+              !str$case_blind_compare(&tmpdsc,&localdsc)) 
             symtype = LIB$K_CLI_LOCAL_SYM;
           else symtype = LIB$K_CLI_GLOBAL_SYM;
           retsts = lib$delete_symbol(&lnmdsc,&symtype);
@@ -1560,18 +1566,18 @@ Perl_vmssetenv(pTHX_ const char *lnm, const char *eqv, struct dsc$descriptor_s *
       }
     }
     else {  /* we're defining a value */
-      if (!ivenv && !str$case_blind_compare(tabvec[0],&crtlenv)) {
+      if (!ivenv && !str$case_blind_compare(tabvec[0],&crtlenvdsc)) {
         return setenv(lnm,eqv,1) ? vaxc$errno : 0;
       }
       else {
         eqvdsc.dsc$a_pointer = (char *) eqv; /* cast ok to readonly parameter */
         eqvdsc.dsc$w_length  = strlen(eqv);
         if ((tmpdsc.dsc$a_pointer = tabvec[0]->dsc$a_pointer) &&
-            !str$case_blind_compare(&tmpdsc,&clisym)) {
+            !str$case_blind_compare(&tmpdsc,&clisymdsc)) {
           unsigned int symtype;
           if (tabvec[0]->dsc$w_length == 12 &&
               (tmpdsc.dsc$a_pointer = tabvec[0]->dsc$a_pointer + 6) &&
-               !str$case_blind_compare(&tmpdsc,&local)) 
+               !str$case_blind_compare(&tmpdsc,&localdsc)) 
             symtype = LIB$K_CLI_LOCAL_SYM;
           else symtype = LIB$K_CLI_GLOBAL_SYM;
           retsts = lib$set_symbol(&lnmdsc,&eqvdsc,&symtype);
@@ -1680,7 +1686,7 @@ Perl_my_setenv(pTHX_ const char *lnm, const char *eqv)
 void
 Perl_vmssetuserlnm(const char *name, const char *eqv)
 {
-    $DESCRIPTOR(d_tab, "LNM$PROCESS");
+    static $DESCRIPTOR(d_tab, "LNM$PROCESS");
     struct dsc$descriptor_d d_name = {0,DSC$K_DTYPE_T,DSC$K_CLASS_D,0};
     unsigned int iss, attr = LNM$M_CONFINE;
     unsigned char acmode = PSL$C_USER;
@@ -4034,9 +4040,9 @@ create_forked_xterm(pTHX_ const char *cmd, const char *mode)
         return NULL;
 
     if (decw_term_port == 0) {
-        $DESCRIPTOR(filename1_dsc, "DECW$TERMINALSHR12");
-        $DESCRIPTOR(filename2_dsc, "DECW$TERMINALSHR");
-        $DESCRIPTOR(decw_term_port_dsc, "DECW$TERM_PORT");
+        static $DESCRIPTOR(filename1_dsc, "DECW$TERMINALSHR12");
+        static $DESCRIPTOR(filename2_dsc, "DECW$TERMINALSHR");
+        static $DESCRIPTOR(decw_term_port_dsc, "DECW$TERM_PORT");
 
        status = lib$find_image_symbol
                                (&filename1_dsc,
@@ -4216,9 +4222,9 @@ safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
     struct dsc$descriptor_s d_sym_cmd = {0, DSC$K_DTYPE_T,
                                       DSC$K_CLASS_S, cmd_sym_name};
     struct dsc$descriptor_s *vmscmd;
-    $DESCRIPTOR(d_sym_in ,"PERL_POPEN_IN");
-    $DESCRIPTOR(d_sym_out,"PERL_POPEN_OUT");
-    $DESCRIPTOR(d_sym_err,"PERL_POPEN_ERR");
+    static $DESCRIPTOR(d_sym_in ,"PERL_POPEN_IN");
+    static $DESCRIPTOR(d_sym_out,"PERL_POPEN_OUT");
+    static $DESCRIPTOR(d_sym_err,"PERL_POPEN_ERR");
 
     /* Check here for Xterm create request.  This means looking for
      * "3>&1 xterm\b" and "\btty 1>&3\b$" in the command, and that it
@@ -4254,7 +4260,7 @@ safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
         _ckvmssts_noperl(sys$setast(0));
         if (!pipe_ef) {
             int pidcode = JPI$_PID;
-            $DESCRIPTOR(d_delay, RETRY_DELAY);
+            static $DESCRIPTOR(d_delay, RETRY_DELAY);
             _ckvmssts_noperl(lib$get_ef(&pipe_ef));
             _ckvmssts_noperl(lib$getjpi(&pidcode,0,0,&mypid,0,0));
             _ckvmssts_noperl(sys$bintim(&d_delay, &delaytime));
@@ -4805,7 +4811,7 @@ Perl_my_waitpid(pTHX_ Pid_t pid, int *statusp, int flags)
        */
 
     {
-      $DESCRIPTOR(intdsc,"0 00:00:01");
+      static $DESCRIPTOR(intdsc,"0 00:00:01");
       int ownercode = JPI$_OWNER, ownerpid;
       int pidcode = JPI$_PID, mypid;
       struct _generic_64 interval;
@@ -5040,7 +5046,7 @@ vms_rename_with_acl(pTHX_ struct dsc$descriptor_s * vms_src_dsc,
     * it appears to be replaced by $set_security some time ago */
 
     unsigned int access_mode = 0;
-    $DESCRIPTOR(obj_file_dsc,"FILE");
+    static $DESCRIPTOR(obj_file_dsc,"FILE");
     char *vmsname;
     char *rslt;
     int jpicode = JPI$_UIC;
@@ -9598,7 +9604,6 @@ background_process(pTHX_ int argc, char **argv)
     char command[MAX_DCL_SYMBOL + 1] = "$";
     $DESCRIPTOR(value, "");
     static $DESCRIPTOR(cmd, "BACKGROUND$COMMAND");
-    static $DESCRIPTOR(null, "NLA0:");
     static $DESCRIPTOR(pidsymbol, "SHELL_BACKGROUND_PID");
     char pidstring[80];
     $DESCRIPTOR(pidstr, "");
@@ -9616,9 +9621,9 @@ background_process(pTHX_ int argc, char **argv)
     value.dsc$a_pointer = command;
     value.dsc$w_length = strlen(value.dsc$a_pointer);
     _ckvmssts_noperl(lib$set_symbol(&cmd, &value));
-    retsts = lib$spawn(&cmd, &null, 0, &flags, 0, &pid);
+    retsts = lib$spawn(&cmd, &nulldsc, 0, &flags, 0, &pid);
     if (retsts == 0x38250) { /* DCL-W-NOTIFY - We must be BATCH, so retry */
-        _ckvmssts_noperl(lib$spawn(&cmd, &null, 0, &one, 0, &pid));
+        _ckvmssts_noperl(lib$spawn(&cmd, &nulldsc, 0, &one, 0, &pid));
     }
     else {
         _ckvmssts_noperl(retsts);
@@ -12992,7 +12997,7 @@ Perl_vms_start_glob(pTHX_ SV *tmpglob, IO *io)
     char *vmsspec;
     char *rstr;
     char *begin, *cp;
-    $DESCRIPTOR(dfltdsc,"SYS$DISK:[]*.*;");
+    static $DESCRIPTOR(dfltdsc,"SYS$DISK:[]*.*;");
     PerlIO *tmpfp;
     STRLEN i;
     struct dsc$descriptor_s wilddsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
