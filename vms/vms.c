@@ -35,6 +35,7 @@
 #include <float.h>
 #include <fscndef.h>
 #include <gen64def.h>
+#include <iledef.h>
 #include <iodef.h>
 #include <iosbdef.h>
 #include <jpidef.h>
@@ -62,16 +63,6 @@
 #define NO_EFN EFN$C_ENF
 
 #include <unixlib.h>
-
-#pragma member_alignment save
-#pragma nomember_alignment longword
-struct item_list_3 {
-        unsigned short len;
-        unsigned short code;
-        void * bufadr;
-        unsigned short * retadr;
-};
-#pragma member_alignment restore
 
 /* Older versions of ssdef.h don't have these */
 #ifndef SS$_INVFILFOROP
@@ -133,35 +124,11 @@ static int (*decw_term_port)
 dEXT int h_errno;
 #endif
 
-#if defined(__DECC) || defined(__DECCXX)
-#pragma member_alignment save
-#pragma nomember_alignment longword
-#pragma message save
-#pragma message disable misalgndmem
-#endif
-struct itmlst_3 {
-  unsigned short int buflen;
-  unsigned short int itmcode;
-  void *bufadr;
-  unsigned short int *retlen;
-};
-
-struct filescan_itmlst_2 {
-    unsigned short length;
-    unsigned short itmcode;
-    char * component;
-};
-
 struct vs_str_st {
     unsigned short length;
     char str[VMS_MAXRSS];
     unsigned short pad; /* for longword struct alignment */
 };
-
-#if defined(__DECC) || defined(__DECCXX)
-#pragma message restore
-#pragma member_alignment restore
-#endif
 
 #define do_fileify_dirspec(a,b,c,d)	mp_do_fileify_dirspec(aTHX_ a,b,c,d)
 #define do_pathify_dirspec(a,b,c,d)	mp_do_pathify_dirspec(aTHX_ a,b,c,d)
@@ -285,8 +252,8 @@ simple_trnlnm(const char * logname, char * value, int value_len)
     struct dsc$descriptor_s name_dsc;
     int status;
     unsigned short result;
-    struct itmlst_3 itlst[2] = {{value_len, LNM$_STRING, value, &result},
-                                {0, 0, 0, 0}};
+    struct _ile3 itlst[2] = {{value_len, LNM$_STRING, value, &result},
+                             {0, 0, 0, 0}};
 
     name_dsc.dsc$w_length = strlen(logname);
     name_dsc.dsc$a_pointer = (char *)logname;
@@ -677,7 +644,7 @@ vms_split_path(const char * path, char * * volume, int * vol_len, char * * root,
     int status;
     unsigned int flags;
     int ret_stat;
-    struct filescan_itmlst_2 item_list[9];
+    struct _ile2 item_list[9];
     const int filespec = 0;
     const int nodespec = 1;
     const int devspec = 2;
@@ -709,96 +676,96 @@ vms_split_path(const char * path, char * * volume, int * vol_len, char * * root,
     /* Get the total length, if it is shorter than the string passed
      * then this was probably not a VMS formatted file specification
      */
-    item_list[filespec].itmcode = FSCN$_FILESPEC;
-    item_list[filespec].length = 0;
-    item_list[filespec].component = NULL;
+    item_list[filespec].ile2$w_code = FSCN$_FILESPEC;
+    item_list[filespec].ile2$w_length = 0;
+    item_list[filespec].ile2$ps_bufaddr = NULL;
 
     /* If the node is present, then it gets considered as part of the
      * volume name to hopefully make things simple.
      */
-    item_list[nodespec].itmcode = FSCN$_NODE;
-    item_list[nodespec].length = 0;
-    item_list[nodespec].component = NULL;
+    item_list[nodespec].ile2$w_code = FSCN$_NODE;
+    item_list[nodespec].ile2$w_length = 0;
+    item_list[nodespec].ile2$ps_bufaddr = NULL;
 
-    item_list[devspec].itmcode = FSCN$_DEVICE;
-    item_list[devspec].length = 0;
-    item_list[devspec].component = NULL;
+    item_list[devspec].ile2$w_code = FSCN$_DEVICE;
+    item_list[devspec].ile2$w_length = 0;
+    item_list[devspec].ile2$ps_bufaddr = NULL;
 
     /* root is a special case,  adding it to either the directory or
      * the device components will probably complicate things for the
      * callers of this routine, so leave it separate.
      */
-    item_list[rootspec].itmcode = FSCN$_ROOT;
-    item_list[rootspec].length = 0;
-    item_list[rootspec].component = NULL;
+    item_list[rootspec].ile2$w_code = FSCN$_ROOT;
+    item_list[rootspec].ile2$w_length = 0;
+    item_list[rootspec].ile2$ps_bufaddr = NULL;
 
-    item_list[dirspec].itmcode = FSCN$_DIRECTORY;
-    item_list[dirspec].length = 0;
-    item_list[dirspec].component = NULL;
+    item_list[dirspec].ile2$w_code = FSCN$_DIRECTORY;
+    item_list[dirspec].ile2$w_length = 0;
+    item_list[dirspec].ile2$ps_bufaddr = NULL;
 
-    item_list[namespec].itmcode = FSCN$_NAME;
-    item_list[namespec].length = 0;
-    item_list[namespec].component = NULL;
+    item_list[namespec].ile2$w_code = FSCN$_NAME;
+    item_list[namespec].ile2$w_length = 0;
+    item_list[namespec].ile2$ps_bufaddr = NULL;
 
-    item_list[typespec].itmcode = FSCN$_TYPE;
-    item_list[typespec].length = 0;
-    item_list[typespec].component = NULL;
+    item_list[typespec].ile2$w_code = FSCN$_TYPE;
+    item_list[typespec].ile2$w_length = 0;
+    item_list[typespec].ile2$ps_bufaddr = NULL;
 
-    item_list[verspec].itmcode = FSCN$_VERSION;
-    item_list[verspec].length = 0;
-    item_list[verspec].component = NULL;
+    item_list[verspec].ile2$w_code = FSCN$_VERSION;
+    item_list[verspec].ile2$w_length = 0;
+    item_list[verspec].ile2$ps_bufaddr = NULL;
 
-    item_list[8].itmcode = 0;
-    item_list[8].length = 0;
-    item_list[8].component = NULL;
+    item_list[8].ile2$w_code = 0;
+    item_list[8].ile2$w_length = 0;
+    item_list[8].ile2$ps_bufaddr = NULL;
 
     status = sys$filescan(&path_desc, item_list, &flags, NULL, NULL);
     _ckvmssts_noperl(status); /* All failure status values indicate a coding error */
 
     /* If we parsed it successfully these two lengths should be the same */
-    if (path_desc.dsc$w_length != item_list[filespec].length)
+    if (path_desc.dsc$w_length != item_list[filespec].ile2$w_length)
         return ret_stat;
 
     /* If we got here, then it is a VMS file specification */
     ret_stat = 0;
 
     /* set the volume name */
-    if (item_list[nodespec].length > 0) {
-        *volume = item_list[nodespec].component;
-        *vol_len = item_list[nodespec].length + item_list[devspec].length;
+    if (item_list[nodespec].ile2$w_length > 0) {
+        *volume = item_list[nodespec].ile2$ps_bufaddr;
+        *vol_len = item_list[nodespec].ile2$w_length + item_list[devspec].ile2$w_length;
     }
     else {
-        *volume = item_list[devspec].component;
-        *vol_len = item_list[devspec].length;
+        *volume = item_list[devspec].ile2$ps_bufaddr;
+        *vol_len = item_list[devspec].ile2$w_length;
     }
 
-    *root = item_list[rootspec].component;
-    *root_len = item_list[rootspec].length;
+    *root = item_list[rootspec].ile2$ps_bufaddr;
+    *root_len = item_list[rootspec].ile2$w_length;
 
-    *dir = item_list[dirspec].component;
-    *dir_len = item_list[dirspec].length;
+    *dir = item_list[dirspec].ile2$ps_bufaddr;
+    *dir_len = item_list[dirspec].ile2$w_length;
 
     /* Now fun with versions and EFS file specifications
      * The parser can not tell the difference when a "." is a version
      * delimiter or a part of the file specification.
      */
     if ((DECC_EFS_CHARSET) &&
-        (item_list[verspec].length > 0) &&
-        (item_list[verspec].component[0] == '.')) {
-        *name = item_list[namespec].component;
-        *name_len = item_list[namespec].length + item_list[typespec].length;
-        *ext = item_list[verspec].component;
-        *ext_len = item_list[verspec].length;
+        (item_list[verspec].ile2$w_length > 0) &&
+        (((char *)item_list[verspec].ile2$ps_bufaddr)[0] == '.')) {
+        *name = item_list[namespec].ile2$ps_bufaddr;
+        *name_len = item_list[namespec].ile2$w_length + item_list[typespec].ile2$w_length;
+        *ext = item_list[verspec].ile2$ps_bufaddr;
+        *ext_len = item_list[verspec].ile2$w_length;
         *version = NULL;
         *ver_len = 0;
     }
     else {
-        *name = item_list[namespec].component;
-        *name_len = item_list[namespec].length;
-        *ext = item_list[typespec].component;
-        *ext_len = item_list[typespec].length;
-        *version = item_list[verspec].component;
-        *ver_len = item_list[verspec].length;
+        *name = item_list[namespec].ile2$ps_bufaddr;
+        *name_len = item_list[namespec].ile2$w_length;
+        *ext = item_list[typespec].ile2$ps_bufaddr;
+        *ext_len = item_list[typespec].ile2$w_length;
+        *version = item_list[verspec].ile2$ps_bufaddr;
+        *ver_len = item_list[verspec].ile2$w_length;
     }
     return ret_stat;
 }
@@ -851,8 +818,8 @@ my_maxidx(const char *lnm)
     int midx;
     unsigned int attr = LNM$M_CASE_BLIND;
     struct dsc$descriptor lnmdsc;
-    struct itmlst_3 itlst[2] = {{sizeof(midx), LNM$_MAX_INDEX, &midx, 0},
-                                {0, 0, 0, 0}};
+    struct _ile3 itlst[2] = {{sizeof(midx), LNM$_MAX_INDEX, &midx, 0},
+                             {0, 0, 0, 0}};
 
     lnmdsc.dsc$w_length = strlen(lnm);
     lnmdsc.dsc$b_dtype = DSC$K_DTYPE_T;
@@ -900,9 +867,9 @@ Perl_vmstrnenv(const char *lnm, char *eqv, unsigned int idx,
     unsigned char acmode;
     struct dsc$descriptor_s lnmdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0},
                             tmpdsc = {6,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
-    struct itmlst_3 lnmlst[3] = {{sizeof idx, LNM$_INDEX, &idx, 0},
-                                 {LNM$C_NAMLENGTH, LNM$_STRING, eqv, &eqvlen},
-                                 {0, 0, 0, 0}};
+    struct _ile3 lnmlst[3] = {{sizeof idx, LNM$_INDEX, &idx, 0},
+                              {LNM$C_NAMLENGTH, LNM$_STRING, eqv, &eqvlen},
+                              {0, 0, 0, 0}};
 #if defined(MULTIPLICITY)
     pTHX = NULL;
     if (PL_curinterp) {
@@ -1002,7 +969,7 @@ Perl_vmstrnenv(const char *lnm, char *eqv, unsigned int idx,
         if ( (idx == 0) && (flags & PERL__TRNENV_JOIN_SEARCHLIST) ) {
           midx = my_maxidx(lnm);
           for (idx = 0, cp2 = eqv; idx <= midx; idx++) {
-            lnmlst[1].bufadr = cp2;
+            lnmlst[1].ile3$ps_bufaddr = cp2;
             eqvlen = 0;
             retsts = sys$trnlnm(&attr,tabvec[curtab],&lnmdsc,&acmode,lnmlst);
             if (retsts == SS$_IVLOGNAM) { ivlnm = 1; break; }
@@ -1509,7 +1476,7 @@ Perl_vmssetenv(pTHX_ const char *lnm, const char *eqv, struct dsc$descriptor_s *
     int nseg = 0, j;
     unsigned int retsts;
     unsigned char usermode = PSL$C_USER;
-    struct itmlst_3 *ile, *ilist;
+    struct _ile3 *ile, *ilist;
     struct dsc$descriptor_s lnmdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,uplnm},
                             eqvdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0},
                             tmpdsc = {6,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
@@ -1594,24 +1561,24 @@ Perl_vmssetenv(pTHX_ const char *lnm, const char *eqv, struct dsc$descriptor_s *
               nseg = PERL_LNM_MAX_ALLOWED_INDEX + 1;
             }
 
-            Newx(ilist,nseg+1,struct itmlst_3);
+            Newx(ilist,nseg+1,struct _ile3);
             ile = ilist;
             if (!ile) {
               set_errno(ENOMEM); set_vaxc_errno(SS$_INSFMEM);
               return SS$_INSFMEM;
             }
-            memset(ilist, 0, (sizeof(struct itmlst_3) * (nseg+1)));
+            memset(ilist, 0, (sizeof(struct _ile3) * (nseg+1)));
 
             for (j = 0, c = eqvdsc.dsc$a_pointer; j < nseg; j++, ile++, c += LNM$C_NAMLENGTH) {
-              ile->itmcode = LNM$_STRING;
-              ile->bufadr = c;
+              ile->ile3$w_code = LNM$_STRING;
+              ile->ile3$ps_bufaddr = c;
               if ((j+1) == nseg) {
-                ile->buflen = strlen(c);
+                ile->ile3$w_length = strlen(c);
                 /* in case we are truncating one that's too long */
-                if (ile->buflen > LNM$C_NAMLENGTH) ile->buflen = LNM$C_NAMLENGTH;
+                if (ile->ile3$w_length > LNM$C_NAMLENGTH) ile->ile3$w_length = LNM$C_NAMLENGTH;
               }
               else {
-                ile->buflen = LNM$C_NAMLENGTH;
+                ile->ile3$w_length = LNM$C_NAMLENGTH;
               }
             }
 
@@ -1690,13 +1657,13 @@ Perl_vmssetuserlnm(const char *name, const char *eqv)
     struct dsc$descriptor_d d_name = {0,DSC$K_DTYPE_T,DSC$K_CLASS_D,0};
     unsigned int iss, attr = LNM$M_CONFINE;
     unsigned char acmode = PSL$C_USER;
-    struct itmlst_3 lnmlst[2] = {{0, LNM$_STRING, 0, 0},
-                                 {0, 0, 0, 0}};
+    struct _ile3 lnmlst[2] = {{0, LNM$_STRING, 0, 0},
+                              {0, 0, 0, 0}};
     d_name.dsc$a_pointer = (char *)name; /* Cast OK for read only parameter */
     d_name.dsc$w_length = strlen(name);
 
-    lnmlst[0].buflen = strlen(eqv);
-    lnmlst[0].bufadr = (char *)eqv; /* Cast OK for read only parameter */
+    lnmlst[0].ile3$w_length = strlen(eqv);
+    lnmlst[0].ile3$ps_bufaddr = (char *)eqv; /* Cast OK for read only parameter */
 
     iss = sys$crelnm(&attr,&d_tab,&d_name,&acmode,lnmlst);
     if (!(iss&1)) lib$signal(iss);
@@ -1732,7 +1699,7 @@ Perl_my_crypt(pTHX_ const char *textpasswd, const char *usrname)
         const char *       dsc$a_pointer;
     }  usrdsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0},
        txtdsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
-    struct itmlst_3 uailst[3] = {
+    struct _ile3 uailst[3] = {
         { sizeof alg,  UAI$_ENCRYPT, &alg, 0},
         { sizeof salt, UAI$_SALT,    &salt, 0},
         { 0,           0,            NULL,  NULL}};
@@ -1798,16 +1765,12 @@ mp_do_kill_file(pTHX_ const char *name, int dirflag)
     unsigned int cxt = 0, aclsts, fndsts;
     int rmsts = -1;
     struct dsc$descriptor_s fildsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
-    struct myacedef {
-      unsigned char myace$b_length;
-      unsigned char myace$b_type;
-      unsigned short int myace$w_flags;
-      unsigned int myace$l_access;
-      unsigned int myace$l_ident;
-    } newace = { sizeof(struct myacedef), ACE$C_KEYID, 0,
+    struct _acedef
+      newace = { sizeof(struct _acedef), ACE$C_KEYID, 0,
                  ACE$M_READ | ACE$M_WRITE | ACE$M_DELETE | ACE$M_CONTROL, 0},
-      oldace = { sizeof(struct myacedef), ACE$C_KEYID, 0, 0, 0};
-     struct itmlst_3
+      oldace = { sizeof(struct _acedef), ACE$C_KEYID, 0, 0, 0};
+
+    struct _ile3
        findlst[3] = {{sizeof oldace, ACL$C_FNDACLENT, &oldace, 0},
                      {sizeof oldace, ACL$C_READACE,   &oldace, 0},{0,0,0,0}},
        addlst[2] = {{sizeof newace, ACL$C_ADDACLENT, &newace, 0},{0,0,0,0}},
@@ -1847,11 +1810,11 @@ mp_do_kill_file(pTHX_ const char *name, int dirflag)
      * and the insert an ACE at the head of the ACL which allows us
      * to delete the file.
      */
-    _ckvmssts_noperl(lib$getjpi(&jpicode,0,0,&(oldace.myace$l_ident),0,0));
+    _ckvmssts_noperl(lib$getjpi(&jpicode,0,0,&(oldace.ace$l_key),0,0));
     fildsc.dsc$w_length = strlen(vmsname);
     fildsc.dsc$a_pointer = vmsname;
     cxt = 0;
-    newace.myace$l_ident = oldace.myace$l_ident;
+    newace.ace$l_key = oldace.ace$l_key;
     rmsts = -1;
     if (!((aclsts = sys$change_acl(0,&type,&fildsc,lcklst,0,0,0,0,0)) & 1)) {
       switch (aclsts) {
@@ -1891,7 +1854,7 @@ mp_do_kill_file(pTHX_ const char *name, int dirflag)
         if (!((aclsts = sys$change_acl(0,&type,&fildsc,dellst,0,0,0,0,0)) & 1))
           goto yourroom;
         if (fndsts & 1) {
-          addlst[0].bufadr = &oldace;
+          addlst[0].ile3$ps_bufaddr = &oldace;
           if (!((aclsts = sys$change_acl(0,&type,&fildsc,addlst,0,0,&cxt,0,0)) & 1))
             goto yourroom;
         }
@@ -2396,7 +2359,7 @@ Perl_my_killpg(pid_t master_pid, int signum)
     int pid, status, i;
     unsigned int jpi_context;
     struct _iosb iosb;
-    struct itmlst_3  il3[3];
+    struct _ile3 il3[3];
 
     /* All processes on the system?  Seems dangerous, but it looks
      * like we could implement this pretty easily with a wildcard
@@ -2412,15 +2375,15 @@ Perl_my_killpg(pid_t master_pid, int signum)
      */
     if (master_pid == 0) {
         i = 0;
-        il3[i].buflen   = sizeof( int );
-        il3[i].itmcode   = JPI$_MASTER_PID;
-        il3[i].bufadr   = &master_pid;
-        il3[i++].retlen = NULL;
+        il3[i].ile3$w_length            = sizeof( int );
+        il3[i].ile3$w_code              = JPI$_MASTER_PID;
+        il3[i].ile3$ps_bufaddr          = &master_pid;
+        il3[i++].ile3$ps_retlen_addr    = NULL;
 
-        il3[i].buflen   = 0;
-        il3[i].itmcode   = 0;
-        il3[i].bufadr   = NULL;
-        il3[i++].retlen = NULL;
+        il3[i].ile3$w_length            = 0;
+        il3[i].ile3$w_code              = 0;
+        il3[i].ile3$ps_bufaddr          = NULL;
+        il3[i++].ile3$ps_retlen_addr    = NULL;
 
         status = sys$getjpiw(EFN$C_ENF, NULL, NULL, il3, &iosb, NULL, 0);
         if ($VMS_STATUS_SUCCESS(status))
@@ -2456,15 +2419,15 @@ Perl_my_killpg(pid_t master_pid, int signum)
      */
 
     i = 0;
-    il3[i].buflen   = 0;
-    il3[i].itmcode   = PSCAN$_MASTER_PID;
-    il3[i].bufadr   = (void *)master_pid;
-    il3[i++].retlen = NULL;
+    il3[i].ile3$w_length            = 0;
+    il3[i].ile3$w_code              = PSCAN$_MASTER_PID;
+    il3[i].ile3$ps_bufaddr          = (void *)master_pid;
+    il3[i++].ile3$ps_retlen_addr    = NULL;
 
-    il3[i].buflen   = 0;
-    il3[i].itmcode   = 0;
-    il3[i].bufadr   = NULL;
-    il3[i++].retlen = NULL;
+    il3[i].ile3$w_length            = 0;
+    il3[i].ile3$w_code              = 0;
+    il3[i].ile3$ps_bufaddr          = NULL;
+    il3[i++].ile3$ps_retlen_addr    = NULL;
 
     status = sys$process_scan(&jpi_context, il3);
     switch (status) {
@@ -2483,15 +2446,15 @@ Perl_my_killpg(pid_t master_pid, int signum)
         return -1;
 
     i = 0;
-    il3[i].buflen   = sizeof(int);
-    il3[i].itmcode  = JPI$_PID;
-    il3[i].bufadr   = &pid;
-    il3[i++].retlen = NULL;
+    il3[i].ile3$w_length            = sizeof(int);
+    il3[i].ile3$w_code              = JPI$_PID;
+    il3[i].ile3$ps_bufaddr          = &pid;
+    il3[i++].ile3$ps_retlen_addr    = NULL;
 
-    il3[i].buflen   = 0;
-    il3[i].itmcode  = 0;
-    il3[i].bufadr   = NULL;
-    il3[i++].retlen = NULL;
+    il3[i].ile3$w_length            = 0;
+    il3[i].ile3$w_code              = 0;
+    il3[i].ile3$ps_bufaddr          = NULL;
+    il3[i++].ile3$ps_retlen_addr    = NULL;
 
     /* Loop through the processes matching our specified criteria
      */
@@ -3564,7 +3527,7 @@ pipe_mbxtofd_setup(pTHX_ int fd, char *out)
         unsigned short dev_len;
         struct dsc$descriptor_s d_dev;
         char * cptr;
-        struct item_list_3 items[3];
+        struct _ile3 items[3];
         int status;
         struct _iosb dvi_iosb;
 
@@ -3575,16 +3538,16 @@ pipe_mbxtofd_setup(pTHX_ int fd, char *out)
         d_dev.dsc$b_dtype = DSC$K_DTYPE_T;
         d_dev.dsc$b_class = DSC$K_CLASS_S;
 
-        items[0].len = 4;
-        items[0].code = DVI$_DEVCHAR;
-        items[0].bufadr = &devchar;
-        items[0].retadr = NULL;
-        items[1].len = 64;
-        items[1].code = DVI$_FULLDEVNAM;
-        items[1].bufadr = device;
-        items[1].retadr = &dev_len;
-        items[2].len = 0;
-        items[2].code = 0;
+        items[0].ile3$w_length          = 4;
+        items[0].ile3$w_code            = DVI$_DEVCHAR;
+        items[0].ile3$ps_bufaddr        = &devchar;
+        items[0].ile3$ps_retlen_addr    = NULL;
+        items[1].ile3$w_length          = 64;
+        items[1].ile3$w_code            = DVI$_FULLDEVNAM;
+        items[1].ile3$ps_bufaddr        = device;
+        items[1].ile3$ps_retlen_addr    = &dev_len;
+        items[2].ile3$w_length          = 0;
+        items[2].ile3$w_code            = 0;
 
         status = sys$getdviw
                 (NO_EFN, 0, &d_dev, items, &dvi_iosb, NULL, 0, NULL);
@@ -3940,7 +3903,7 @@ vms_is_syscommand_xterm(void)
     static struct dsc$descriptor_s decwdisplay_dsc = 
       { 12, DSC$K_DTYPE_T, DSC$K_CLASS_S, "DECW$DISPLAY" };
 
-    struct item_list_3 items[2];
+    struct _ile3 items[2];
     struct _iosb dvi_iosb;
     unsigned int devchar;
     unsigned int devclass;
@@ -3948,12 +3911,12 @@ vms_is_syscommand_xterm(void)
 
     /* Very simple check to guess if sys$command is a decterm? */
     /* First see if the DECW$DISPLAY: device exists */
-    items[0].len = 4;
-    items[0].code = DVI$_DEVCHAR;
-    items[0].bufadr = &devchar;
-    items[0].retadr = NULL;
-    items[1].len = 0;
-    items[1].code = 0;
+    items[0].ile3$w_length          = 4;
+    items[0].ile3$w_code            = DVI$_DEVCHAR;
+    items[0].ile3$ps_bufaddr        = &devchar;
+    items[0].ile3$ps_retlen_addr    = NULL;
+    items[1].ile3$w_length          = 0;
+    items[1].ile3$w_code            = 0;
 
     status = sys$getdviw
         (NO_EFN, 0, &decwdisplay_dsc, items, &dvi_iosb, NULL, 0, NULL);
@@ -3971,12 +3934,12 @@ vms_is_syscommand_xterm(void)
     /* Now verify that SYS$COMMAND is a terminal */
     /* for creating the debugger DECTerm */
 
-    items[0].len = 4;
-    items[0].code = DVI$_DEVCLASS;
-    items[0].bufadr = &devclass;
-    items[0].retadr = NULL;
-    items[1].len = 0;
-    items[1].code = 0;
+    items[0].ile3$w_length          = 4;
+    items[0].ile3$w_code            = DVI$_DEVCLASS;
+    items[0].ile3$ps_bufaddr        = &devclass;
+    items[0].ile3$ps_retlen_addr    = NULL;
+    items[1].ile3$w_length          = 0;
+    items[1].ile3$w_code            = 0;
 
     status = sys$getdviw
         (NO_EFN, 0, &syscommand_dsc, items, &dvi_iosb, NULL, 0, NULL);
@@ -4817,7 +4780,7 @@ Perl_my_waitpid(pTHX_ Pid_t pid, int *statusp, int flags)
       struct _generic_64 interval;
       struct _iosb jpi_iosb;
 
-      struct itmlst_3 jpilist[2] = { 
+      struct _ile3 jpilist[2] = { 
           {sizeof(ownerpid),        JPI$_OWNER, &ownerpid,        0},
           {                      0,         0,                 0, 0} 
       };
@@ -5055,18 +5018,12 @@ vms_rename_with_acl(pTHX_ struct dsc$descriptor_s * vms_src_dsc,
     struct dsc$descriptor_s fildsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
     struct dsc$descriptor_s * clean_dsc;
     
-    struct myacedef {
-        unsigned char myace$b_length;
-        unsigned char myace$b_type;
-        unsigned short int myace$w_flags;
-        unsigned int myace$l_access;
-        unsigned int myace$l_ident;
-    } newace = { sizeof(struct myacedef), ACE$C_KEYID, 0,
-             ACE$M_READ | ACE$M_WRITE | ACE$M_DELETE | ACE$M_CONTROL,
-             0},
-             oldace = { sizeof(struct myacedef), ACE$C_KEYID, 0, 0, 0};
+    struct _acedef
+      newace = { sizeof(struct _acedef), ACE$C_KEYID, 0,
+                 ACE$M_READ | ACE$M_WRITE | ACE$M_DELETE | ACE$M_CONTROL, 0},
+      oldace = { sizeof(struct _acedef), ACE$C_KEYID, 0, 0, 0};
 
-    struct item_list_3
+    struct _ile3
         findlst[3] = {{sizeof oldace, OSS$_ACL_FIND_ENTRY, &oldace, 0},
                       {sizeof oldace, OSS$_ACL_READ_ENTRY, &oldace, 0},
                       {0,0,0,0}},
@@ -5093,12 +5050,12 @@ vms_rename_with_acl(pTHX_ struct dsc$descriptor_s * vms_src_dsc,
      * and the insert an ACE at the head of the ACL which allows us
      * to delete the file.
      */
-    _ckvmssts_noperl(lib$getjpi(&jpicode,0,0,&(oldace.myace$l_ident),0,0));
+    _ckvmssts_noperl(lib$getjpi(&jpicode,0,0,&(oldace.ace$l_key),0,0));
 
     fildsc.dsc$w_length = strlen(vmsname);
     fildsc.dsc$a_pointer = vmsname;
     ctx = 0;
-    newace.myace$l_ident = oldace.myace$l_ident;
+    newace.ace$l_key = oldace.ace$l_key;
     rnsts = SS$_ABORT;
 
     /* Grab any existing ACEs with this identifier in case we fail */
@@ -5159,7 +5116,7 @@ vms_rename_with_acl(pTHX_ struct dsc$descriptor_s * vms_src_dsc,
 
             /* If there was an old ACE, put it back */
             if ($VMS_STATUS_SUCCESS(aclsts) && $VMS_STATUS_SUCCESS(fndsts)) {
-                addlst[0].bufadr = &oldace;
+                addlst[0].ile3$ps_bufaddr = &oldace;
                 aclsts = sys$set_security(NULL, NULL, NULL,
                                       OSS$M_RELCTX, addlst, &ctx, &access_mode);
                 if (!$VMS_STATUS_SUCCESS(aclsts) && (aclsts != SS$_NOCLASS)) {
@@ -9668,10 +9625,10 @@ vms_image_init(int *argcp, char ***argvp)
 #if defined(MULTIPLICITY)
   pTHX = NULL;
 #endif
-  struct itmlst_3 jpilist[4] = { {sizeof iprv,    JPI$_IMAGPRIV, &iprv, NULL},
-                                 {sizeof rlst,  JPI$_RIGHTSLIST, rlst, &rlen},
-                                 { sizeof rsz, JPI$_RIGHTS_SIZE, &rsz,  NULL},
-                                 {          0,                0,    0,     0} };
+  struct _ile3 jpilist[4] = { {sizeof iprv,    JPI$_IMAGPRIV, &iprv, NULL},
+                              {sizeof rlst,  JPI$_RIGHTSLIST, rlst, &rlen},
+                              { sizeof rsz, JPI$_RIGHTS_SIZE, &rsz,  NULL},
+                              {          0,                0,    0,     0} };
 
 #ifdef KILL_BY_SIGPRC
     Perl_csighandler_init();
@@ -9693,21 +9650,21 @@ vms_image_init(int *argcp, char ***argvp)
        * If it gave us less than it wanted to despite ample buffer space, 
        * something's broken.  Is your system missing a system identifier?
        */
-      if (rsz <= jpilist[1].buflen) { 
+      if (rsz <= jpilist[1].ile3$w_length) { 
          /* Perl_croak accvios when used this early in startup. */
          fprintf(stderr, "vms_image_init: $getjpiw refuses to store RIGHTSLIST of %u bytes in buffer of %u bytes.\n%s", 
-                         rsz, (unsigned int) jpilist[1].buflen,
+                         rsz, (unsigned int) jpilist[1].ile3$w_length,
                          "Check your rights database for corruption.\n");
          exit(SS$_ABORT);
       }
-      if (jpilist[1].bufadr != rlst) PerlMem_free(jpilist[1].bufadr);
-      jpilist[1].bufadr = mask = (unsigned int *) PerlMem_malloc(rsz * sizeof(unsigned int));
+      if (jpilist[1].ile3$ps_bufaddr != rlst) PerlMem_free(jpilist[1].ile3$ps_bufaddr);
+      jpilist[1].ile3$ps_bufaddr = mask = (unsigned int *) PerlMem_malloc(rsz * sizeof(unsigned int));
       if (mask == NULL) _ckvmssts_noperl(SS$_INSFMEM);
-      jpilist[1].buflen = rsz * sizeof(unsigned int);
+      jpilist[1].ile3$w_length = rsz * sizeof(unsigned int);
       _ckvmssts_noperl(sys$getjpiw(0,NULL,NULL,&jpilist[1],&iosb,NULL,0));
       _ckvmssts_noperl(iosb.iosb$w_status);
     }
-    mask = (unsigned int *)jpilist[1].bufadr;
+    mask = (unsigned int *)jpilist[1].ile3$ps_bufaddr;
     /* Check attribute flags for each identifier (2nd longword); protected
      * subsystem identifiers trigger tainting.
      */
@@ -11377,7 +11334,7 @@ fillpasswd (pTHX_ const char *name, struct passwd *pwd)
     struct dsc$descriptor_s name_desc;
     unsigned int sts;
 
-    static struct itmlst_3 itmlst[]= {
+    static struct _ile3 itmlst[]= {
         {UAI$S_OWNER+1,    UAI$_OWNER,  &owner,    &lowner},
         {sizeof(uic),      UAI$_UIC,    &uic,      &luic},
         {UAI$S_DEFDEV+1,   UAI$_DEFDEV, &defdev,   &ldefdev},
@@ -11883,13 +11840,13 @@ Perl_cando_by_name_int(pTHX_ I32 bit, bool effective, const char *fname, int opt
   unsigned short int retlen, trnlnm_iter_count;
   struct dsc$descriptor_s namdsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
   union _prvdef curprv;
-  struct itmlst_3 armlst[4] = {{sizeof access, CHP$_ACCESS, &access, &retlen},
+  struct _ile3 armlst[4] = {{sizeof access, CHP$_ACCESS, &access, &retlen},
          {sizeof privused, CHP$_PRIVUSED, &privused, &retlen},
          {sizeof flags, CHP$_FLAGS, &flags, &retlen},{0,0,0,0}};
-  struct itmlst_3 jpilst[3] = {{sizeof curprv, JPI$_CURPRIV, &curprv, &retlen},
+  struct _ile3 jpilst[3] = {{sizeof curprv, JPI$_CURPRIV, &curprv, &retlen},
          {sizeof usrname, JPI$_USERNAME, &usrname, &usrdsc.dsc$w_length},
          {0,0,0,0}};
-  struct itmlst_3 usrprolst[2] = {{sizeof curprv, CHP$_PRIV, &curprv, &retlen},
+  struct _ile3 usrprolst[2] = {{sizeof curprv, CHP$_PRIV, &curprv, &retlen},
          {0,0,0,0}};
   struct dsc$descriptor_s usrprodsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
   Stat_t st;
