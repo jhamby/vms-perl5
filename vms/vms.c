@@ -554,8 +554,8 @@ copy_expand_vms_filename_escape(char *outspec, const char *inspec, int *output_c
     int count;
     int scnt;
 
-    count = 0;
-    *output_cnt = 0;
+    count = 1;                  /* we read at least one char */
+    *output_cnt = 1;            /* we write at least one char */
     if (*inspec == '^') {
         inspec++;
         switch (*inspec) {
@@ -564,24 +564,22 @@ copy_expand_vms_filename_escape(char *outspec, const char *inspec, int *output_c
          */
         case '.':
             *outspec = *inspec;
-            count += 2;
-            (*output_cnt)++;
+            count++;
             break;
         case '_': /* space */
             *outspec = ' ';
-            count += 2;
-            (*output_cnt)++;
+            count++;
             break;
         case '^':
             /* Hmm.  Better leave the escape escaped. */
             outspec[0] = '^';
             outspec[1] = '^';
-            count += 2;
-            (*output_cnt) += 2;
+            count++;
+            (*output_cnt)++;
             break;
         case 'U': /* Unicode - FIX-ME this is wrong. */
             inspec++;
-            count += 2;
+            count++;
             scnt = strspn(inspec, "0123456789ABCDEFabcdef");
             if (scnt == 4) {
                 unsigned int c1 = 0, c2 = 0;
@@ -589,14 +587,13 @@ copy_expand_vms_filename_escape(char *outspec, const char *inspec, int *output_c
                 if (scnt > 1) {
                     outspec[0] = (U8) c1;
                     outspec[1] = (U8) c2;
-                    (*output_cnt) += 2;
+                    (*output_cnt)++;
                     count += 4;
                 }
             }
             else {
                 /* Error - do best we can to continue */
                 *outspec = 'U';
-                (*output_cnt)++;
             }
             break;
         default:
@@ -607,21 +604,17 @@ copy_expand_vms_filename_escape(char *outspec, const char *inspec, int *output_c
                 scnt = sscanf(inspec, "%2x", &c1);
                 if (scnt > 0) {
                     outspec[0] = c1 & 0xff;
-                    (*output_cnt)++;
                     count += 2;
                 }
             }
             else {
                 *outspec = *inspec;
                 count++;
-                (*output_cnt)++;
             }
         }
     }
     else {
         *outspec = *inspec;
-        count++;
-        (*output_cnt)++;
     }
     return count;
 }
