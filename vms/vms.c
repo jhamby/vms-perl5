@@ -1765,18 +1765,19 @@ mp_do_kill_file(pTHX_ const char *name, int dirflag)
     unsigned int cxt = 0, aclsts, fndsts;
     int rmsts = -1;
     struct dsc$descriptor_s fildsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
+    const size_t myace_size = offsetof(struct _acedef, ace$l_key) + sizeof(int);
     struct _acedef
-      newace = { sizeof(struct _acedef), ACE$C_KEYID, 0,
+      newace = { myace_size, ACE$C_KEYID, 0,
                  ACE$M_READ | ACE$M_WRITE | ACE$M_DELETE | ACE$M_CONTROL, 0},
-      oldace = { sizeof(struct _acedef), ACE$C_KEYID, 0, 0, 0};
+      oldace = { myace_size, ACE$C_KEYID, 0, 0, 0};
 
     struct _ile3
-       findlst[3] = {{sizeof oldace, ACL$C_FNDACLENT, &oldace, 0},
-                     {sizeof oldace, ACL$C_READACE,   &oldace, 0},{0,0,0,0}},
-       addlst[2] = {{sizeof newace, ACL$C_ADDACLENT, &newace, 0},{0,0,0,0}},
-       dellst[2] = {{sizeof newace, ACL$C_DELACLENT, &newace, 0},{0,0,0,0}},
-       lcklst[2] = {{sizeof newace, ACL$C_WLOCK_ACL, &newace, 0},{0,0,0,0}},
-       ulklst[2] = {{sizeof newace, ACL$C_UNLOCK_ACL, &newace, 0},{0,0,0,0}};
+       findlst[3] = {{myace_size, ACL$C_FNDACLENT, &oldace, 0},
+                     {myace_size, ACL$C_READACE,   &oldace, 0},{0,0,0,0}},
+       addlst[2] = {{myace_size, ACL$C_ADDACLENT, &newace, 0},{0,0,0,0}},
+       dellst[2] = {{myace_size, ACL$C_DELACLENT, &newace, 0},{0,0,0,0}},
+       lcklst[2] = {{myace_size, ACL$C_WLOCK_ACL, &newace, 0},{0,0,0,0}},
+       ulklst[2] = {{myace_size, ACL$C_UNLOCK_ACL, &newace, 0},{0,0,0,0}};
 
     /* Expand the input spec using RMS, since the CRTL remove() and
      * system services won't do this by themselves, so we may miss
@@ -5018,17 +5019,18 @@ vms_rename_with_acl(pTHX_ struct dsc$descriptor_s * vms_src_dsc,
     struct dsc$descriptor_s fildsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
     struct dsc$descriptor_s * clean_dsc;
     
+    const size_t myace_size = offsetof(struct _acedef, ace$l_key) + sizeof(int);
     struct _acedef
-      newace = { sizeof(struct _acedef), ACE$C_KEYID, 0,
+      newace = { myace_size, ACE$C_KEYID, 0,
                  ACE$M_READ | ACE$M_WRITE | ACE$M_DELETE | ACE$M_CONTROL, 0},
-      oldace = { sizeof(struct _acedef), ACE$C_KEYID, 0, 0, 0};
+      oldace = { myace_size, ACE$C_KEYID, 0, 0, 0};
 
     struct _ile3
-        findlst[3] = {{sizeof oldace, OSS$_ACL_FIND_ENTRY, &oldace, 0},
-                      {sizeof oldace, OSS$_ACL_READ_ENTRY, &oldace, 0},
+        findlst[3] = {{myace_size, OSS$_ACL_FIND_ENTRY, &oldace, 0},
+                      {myace_size, OSS$_ACL_READ_ENTRY, &oldace, 0},
                       {0,0,0,0}},
-        addlst[2] = {{sizeof newace, OSS$_ACL_ADD_ENTRY, &newace, 0},{0,0,0,0}},
-        dellst[2] = {{sizeof newace, OSS$_ACL_DELETE_ENTRY, &newace, 0},
+        addlst[2] = {{myace_size, OSS$_ACL_ADD_ENTRY, &newace, 0},{0,0,0,0}},
+        dellst[2] = {{myace_size, OSS$_ACL_DELETE_ENTRY, &newace, 0},
                      {0,0,0,0}};
 
 
