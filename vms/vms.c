@@ -44,6 +44,7 @@
 #include <libdef.h>
 #include <lib$routines.h>
 #include <lnmdef.h>
+#include <namdef.h>
 #include <ossdef.h>
 #include <ppropdef.h>
 #include <prvdef.h>
@@ -107,6 +108,11 @@
 #define callback_t	void (*)()
 #endif
 
+#if __INITIAL_POINTER_SIZE
+#pragma __required_pointer_size __save
+#pragma __required_pointer_size __short
+#endif
+
 /* Routine to create a decterm for use with the Perl debugger */
 /* No headers, this information was found in the Programming Concepts Manual */
 
@@ -119,6 +125,20 @@ static int (*decw_term_port)
     void * controller,
     void * char_buffer,
     void * char_change_buffer) = 0;
+
+/* Definition of ACE with a single identifier entry. */
+struct myacedef {
+    unsigned char       myace$b_size;
+    unsigned char       myace$b_type;
+    unsigned short int  myace$w_flags;
+    unsigned int        myace$l_access;
+    unsigned int        myace$l_ident;
+};
+
+#if __INITIAL_POINTER_SIZE
+#pragma __required_pointer_size __restore
+#endif
+
 
 #if defined(NEED_AN_H_ERRNO)
 dEXT int h_errno;
@@ -158,6 +178,18 @@ static char * int_fileify_dirspec(const char *dir, char *buf, int *utf8_fl);
 static char * int_tounixspec(const char *spec, char *buf, int * utf8_fl);
 static char * int_tovmspath(const char *path, char *buf, int * utf8_fl);
 
+/* Add a full control ACE, saving any existing ACE for the identifier. */
+static int vms_add_control_ace(struct dsc$descriptor_s *fildsc,
+                               struct myacedef *oldace,
+                               struct myacedef *newace);
+
+/* Remove the added full control ACE, restoring any previous ACE saved.
+ * Returns void, as the status of the delete/rename is more important.
+ */
+static void vms_remove_control_ace(struct dsc$descriptor_s *fildsc,
+                                   struct myacedef *oldace,
+                                   struct myacedef *newace);
+
 /* see system service docs for $TRNLNM -- NOT the same as LNM$_MAX_INDEX */
 #define PERL_LNM_MAX_ALLOWED_INDEX 127
 
@@ -194,6 +226,9 @@ static struct dsc$descriptor_s nulldsc =
 
 static struct dsc$descriptor_s localdsc = 
   { 6, DSC$K_DTYPE_T, DSC$K_CLASS_S, "_LOCAL" };
+
+static struct dsc$descriptor_s obj_file_dsc = 
+  { 4, DSC$K_DTYPE_T, DSC$K_CLASS_S, "FILE" };
 
 /* True if we shouldn't treat barewords as logicals during directory */
 /* munching */ 
@@ -1753,24 +1788,11 @@ mp_do_kill_file(pTHX_ const char *name, int dirflag)
 {
     char *vmsname;
     char *rslt;
-    int jpicode = JPI$_UIC;
-    unsigned int type = ACL$C_FILE;
-    unsigned int cxt = 0, aclsts, fndsts;
-    int rmsts = -1;
     struct dsc$descriptor_s fildsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
-    const size_t myace_size = offsetof(struct _acedef, ace$l_key) + sizeof(int);
-    struct _acedef
-      newace = { myace_size, ACE$C_KEYID, 0,
+    struct myacedef
+      newace = { sizeof(struct myacedef), ACE$C_KEYID, 0,
                  ACE$M_READ | ACE$M_WRITE | ACE$M_DELETE | ACE$M_CONTROL, 0},
-      oldace = { myace_size, ACE$C_KEYID, 0, 0, 0};
-
-    struct _ile3
-       findlst[3] = {{myace_size, ACL$C_FNDACLENT, &oldace, 0},
-                     {myace_size, ACL$C_READACE,   &oldace, 0},{0,0,0,0}},
-       addlst[2] = {{myace_size, ACL$C_ADDACLENT, &newace, 0},{0,0,0,0}},
-       dellst[2] = {{myace_size, ACL$C_DELACLENT, &newace, 0},{0,0,0,0}},
-       lcklst[2] = {{myace_size, ACL$C_WLOCK_ACL, &newace, 0},{0,0,0,0}},
-       ulklst[2] = {{myace_size, ACL$C_UNLOCK_ACL, &newace, 0},{0,0,0,0}};
+      oldace = { sizeof(struct myacedef), ACE$C_KEYID, 0, 0, 0};
 
     /* Expand the input spec using RMS, since the CRTL remove() and
      * system services won't do this by themselves, so we may miss
@@ -1782,90 +1804,49 @@ mp_do_kill_file(pTHX_ const char *name, int dirflag)
     if (rslt == NULL) {
         PerlMem_free(vmsname);
         return -1;
-      }
+    }
 
     /* Erase the file */
-    rmsts = rms_erase(vmsname);
+    int rmsts = rms_erase(vmsname);
 
     /* Did it succeed */
     if ($VMS_STATUS_SUCCESS(rmsts)) {
         PerlMem_free(vmsname);
         return 0;
-      }
+    }
 
     /* If not, can changing protections help? */
     if (rmsts != RMS$_PRV) {
-      set_vaxc_errno(rmsts);
-      PerlMem_free(vmsname);
-      return -1;
+        set_vaxc_errno(rmsts);
+        PerlMem_free(vmsname);
+        return -1;
     }
 
-    /* No, so we get our own UIC to use as a rights identifier,
-     * and the insert an ACE at the head of the ACL which allows us
-     * to delete the file.
-     */
-    _ckvmssts_noperl(lib$getjpi(&jpicode,0,0,&(oldace.ace$l_key),0,0));
+    /* Try to add a full control ACE, then try erasing the file again. */
+
     fildsc.dsc$w_length = strlen(vmsname);
     fildsc.dsc$a_pointer = vmsname;
-    cxt = 0;
-    newace.ace$l_key = oldace.ace$l_key;
-    rmsts = -1;
-    if (!((aclsts = sys$change_acl(0,&type,&fildsc,lcklst,0,0,0,0,0)) & 1)) {
-      switch (aclsts) {
-        case RMS$_FNF: case RMS$_DNF: case SS$_NOSUCHOBJECT:
-          set_errno(ENOENT); break;
-        case RMS$_DIR:
-          set_errno(ENOTDIR); break;
-        case RMS$_DEV:
-          set_errno(ENODEV); break;
-        case RMS$_SYN: case SS$_INVFILFOROP:
-          set_errno(EINVAL); break;
-        case RMS$_PRV:
-          set_errno(EACCES); break;
-        default:
-          _ckvmssts_noperl(aclsts);
-      }
-      set_vaxc_errno(aclsts);
-      PerlMem_free(vmsname);
-      return -1;
-    }
-    /* Grab any existing ACEs with this identifier in case we fail */
-    aclsts = fndsts = sys$change_acl(0,&type,&fildsc,findlst,0,0,&cxt,0,0);
-    if ( fndsts & 1 || fndsts == SS$_ACLEMPTY || fndsts == SS$_NOENTRY
-                    || fndsts == SS$_NOMOREACE ) {
-      /* Add the new ACE . . . */
-      if (!((aclsts = sys$change_acl(0,&type,&fildsc,addlst,0,0,0,0,0)) & 1))
-        goto yourroom;
 
-      rmsts = rms_erase(vmsname);
-      if ($VMS_STATUS_SUCCESS(rmsts)) {
+    int aclsts = vms_add_control_ace(&fildsc, &oldace, &newace);
+
+    if (!$VMS_STATUS_SUCCESS(aclsts)) {
+        set_errno(EVMSERR);
+        set_vaxc_errno(aclsts);
+        PerlMem_free(vmsname);
+        return -1;
+    }
+
+    rmsts = rms_erase(vmsname);
+
+    if ($VMS_STATUS_SUCCESS(rmsts)) {
         rmsts = 0;
-        }
-        else {
+    } else {
+        set_errno(EVMSERR);
+        set_vaxc_errno(rmsts);
         rmsts = -1;
-        /* We blew it - dir with files in it, no write priv for
-         * parent directory, etc.  Put things back the way they were. */
-        if (!((aclsts = sys$change_acl(0,&type,&fildsc,dellst,0,0,0,0,0)) & 1))
-          goto yourroom;
-        if (fndsts & 1) {
-          addlst[0].ile3$ps_bufaddr = &oldace;
-          if (!((aclsts = sys$change_acl(0,&type,&fildsc,addlst,0,0,&cxt,0,0)) & 1))
-            goto yourroom;
-        }
-      }
-    }
 
-    yourroom:
-    fndsts = sys$change_acl(0,&type,&fildsc,ulklst,0,0,0,0,0);
-    /* We just deleted it, so of course it's not there.  Some versions of
-     * VMS seem to return success on the unlock operation anyhow (after all
-     * the unlock is successful), but others don't.
-     */
-    if (fndsts == RMS$_FNF || fndsts == SS$_NOSUCHOBJECT) fndsts = SS$_NORMAL;
-    if (aclsts & 1) aclsts = fndsts;
-    if (!(aclsts & 1)) {
-      set_errno(EVMSERR);
-      set_vaxc_errno(aclsts);
+        /* Try to remove the full control ACE. */
+        vms_remove_control_ace(&fildsc, &oldace, &newace);
     }
 
     PerlMem_free(vmsname);
@@ -2945,6 +2926,11 @@ struct pipe_details
     unsigned short  xchan_valid;    /* channel is assigned */
 };
 
+#if __INITIAL_POINTER_SIZE
+#pragma __required_pointer_size __save
+#pragma __required_pointer_size __short
+#endif
+
 struct exit_control_block
 {
     struct exit_control_block *flink;
@@ -2953,6 +2939,10 @@ struct exit_control_block
     unsigned int *status_address;
     unsigned int exit_status;
 }; 
+
+#if __INITIAL_POINTER_SIZE
+#pragma __required_pointer_size __restore
+#endif
 
 typedef struct _closed_pipes    Xpipe;
 typedef struct _closed_pipes*  pXpipe;
@@ -4987,45 +4977,139 @@ rms_erase(const char * vmsname)
   return status;
 }
 
+/* Add a full control ACE, saving any existing ACE for the identifier.
+ * Sets the oldace size to 0 bytes if no previous ACE was found.
+ * Returns the VMS status for the final $set_security operation.
+ */
+static int vms_add_control_ace(struct dsc$descriptor_s *fildsc,
+                               struct myacedef *oldace,
+                               struct myacedef *newace)
+{
+    int jpicode = JPI$_UIC;
+    unsigned int ctx = 0;
+    unsigned int access_mode = 0;
+
+    struct _ile3
+        findlst[2] = {{sizeof(struct myacedef), OSS$_ACL_FIND_ENTRY, oldace, 0},
+                      {0,0,0,0}},
+        readlst[2] = {{sizeof(struct myacedef), OSS$_ACL_READ_ENTRY, oldace, 0},
+                      {0,0,0,0}},
+        addlst[2] = {{sizeof(struct myacedef), OSS$_ACL_ADD_ENTRY, newace, 0},
+                     {0,0,0,0}},
+        modlst[2] = {{sizeof(struct myacedef), OSS$_ACL_MODIFY_ENTRY, newace, 0},
+                     {0,0,0,0}};
+ 
+    /* So we get our own UIC to use as a rights identifier,
+     * and then insert an ACE at the head of the ACL which allows us
+     * to delete or rename the file.
+     */
+    _ckvmssts_noperl(lib$getjpi(&jpicode,0,0,&(oldace->myace$l_ident),0,0));
+    newace->myace$l_ident = oldace->myace$l_ident;
+
+    /* Grab any existing ACEs with this identifier in case we fail,
+     * or to restore after a successful or unsuccessful rename.
+     */
+    int fndsts = sys$get_security(&obj_file_dsc, fildsc, NULL,
+                                  OSS$M_WLOCK, findlst, &ctx,
+                                  &access_mode);
+
+    if ($VMS_STATUS_SUCCESS(fndsts)) {
+        /* fprintf(stderr, "sys$get_security found ACE, returned %08x\n", fndsts); */
+
+        /* Read the ACE into the buffer */
+        int readsts = sys$get_security(&obj_file_dsc, fildsc, NULL,
+                                       0, readlst, &ctx, &access_mode);
+
+        if ($VMS_STATUS_SUCCESS(readsts)) {
+            /* Replace the ACE with the new ACE and release ctx */
+            int aclsts = sys$set_security(&obj_file_dsc, fildsc, NULL,
+                                          OSS$M_RELCTX, modlst, &ctx,
+                                          &access_mode);
+            /* fprintf(stderr, "sys$set_security modify returned %08x\n", aclsts); */
+            return aclsts;
+        } else {
+            /* fprintf(stderr, "sys$get_security read entry failed: %08x\n", readsts); */
+            /* Ignore read entry failure and try to add new ACE. */
+            oldace->myace$b_size = 0;
+        }
+    } else {
+        /* Return value will be SS$_ACLEMPTY if not found. Either way,
+         * try to add the ACE, since we have to release the ctx anyway. */
+
+        /* fprintf(stderr, "sys$get_security returned %08x; adding new ACE\n", fndsts); */
+
+        /* Set size to zero so that we don't try to restore a previous ACE. */
+        oldace->myace$b_size = 0;
+    }
+
+    int aclsts = sys$set_security(&obj_file_dsc, fildsc, NULL,
+                                  OSS$M_RELCTX, addlst, &ctx, &access_mode);
+
+    /* fprintf(stderr, "sys$set_security add ACE returned %08x\n", aclsts); */
+    return aclsts;
+}
+
+/* Remove the added full control ACE, restoring any previous ACE saved.
+ * Returns the VMS status for the $set_security operation.
+ */
+static void vms_remove_control_ace(struct dsc$descriptor_s *fildsc,
+                                   struct myacedef *oldace,
+                                   struct myacedef *newace)
+{
+    unsigned int ctx = 0;
+    unsigned int access_mode = 0;
+
+    struct _ile3
+        findlst[2] = {{sizeof(struct myacedef), OSS$_ACL_FIND_ENTRY, newace, 0},
+                      {0,0,0,0}},
+        modlst[2] = {{sizeof(struct myacedef), OSS$_ACL_MODIFY_ENTRY, oldace, 0},
+                     {0,0,0,0}},
+        dellst[2] = {{sizeof(struct myacedef), OSS$_ACL_DELETE_ENTRY, newace, 0},
+                     {0,0,0,0}};
+
+    /* Find the full control ACE. */
+    int fndsts = sys$get_security(&obj_file_dsc, fildsc, NULL,
+                                  OSS$M_WLOCK, findlst, &ctx,
+                                  &access_mode);
+
+    if ($VMS_STATUS_SUCCESS(fndsts)) {
+        if (oldace->myace$b_size) {
+            int aclsts = sys$set_security(&obj_file_dsc, fildsc, NULL,
+                                          OSS$M_RELCTX, modlst, &ctx,
+                                          &access_mode);
+            /* fprintf(stderr, "sys$set_security modify entry returned %08x\n", aclsts); */
+            return;
+        } else {
+            int aclsts = sys$set_security(&obj_file_dsc, fildsc, NULL,
+                                          OSS$M_RELCTX, dellst, &ctx,
+                                          &access_mode);
+            /* fprintf(stderr, "sys$set_security delete entry returned %08x\n", aclsts); */
+            return;
+        }
+    }
+
+    /* fprintf(stderr, "sys$get_security find new ACE returned %08x\n", fndsts); */
+
+    /* Try to clear the lock on the ACL list */
+    int aclsts2 = sys$set_security(NULL, NULL, NULL, OSS$M_RELCTX, NULL,
+                                   &ctx, &access_mode);
+
+    /* fprintf(stderr, "sys$set_security release ctx returned %08x\n", aclsts2); */
+}
 
 static int
 vms_rename_with_acl(pTHX_ struct dsc$descriptor_s * vms_src_dsc,
                     struct dsc$descriptor_s * vms_dst_dsc,
                     unsigned int flags)
 {
-    /* VMS and UNIX handle file permissions differently and
-     * the same ACL trick may be needed for renaming files,
-     * especially if they are directories.
-     */
-
-   /* todo: get kill_file and rename to share common code */
-   /* I can not find online documentation for $change_acl
-    * it appears to be replaced by $set_security some time ago */
-
-    unsigned int access_mode = 0;
-    static $DESCRIPTOR(obj_file_dsc,"FILE");
     char *vmsname;
     char *rslt;
-    int jpicode = JPI$_UIC;
-    int aclsts, fndsts, rnsts = -1;
-    unsigned int ctx = 0;
     struct dsc$descriptor_s fildsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
-    struct dsc$descriptor_s * clean_dsc;
     
-    const size_t myace_size = offsetof(struct _acedef, ace$l_key) + sizeof(int);
-    struct _acedef
-      newace = { myace_size, ACE$C_KEYID, 0,
+    struct myacedef
+      newace = { sizeof(struct myacedef), ACE$C_KEYID, 0,
                  ACE$M_READ | ACE$M_WRITE | ACE$M_DELETE | ACE$M_CONTROL, 0},
-      oldace = { myace_size, ACE$C_KEYID, 0, 0, 0};
-
-    struct _ile3
-        findlst[3] = {{myace_size, OSS$_ACL_FIND_ENTRY, &oldace, 0},
-                      {myace_size, OSS$_ACL_READ_ENTRY, &oldace, 0},
-                      {0,0,0,0}},
-        addlst[2] = {{myace_size, OSS$_ACL_ADD_ENTRY, &newace, 0},{0,0,0,0}},
-        dellst[2] = {{myace_size, OSS$_ACL_DELETE_ENTRY, &newace, 0},
-                     {0,0,0,0}};
-
+      oldace = { sizeof(struct myacedef), ACE$C_KEYID, 0, 0, 0};
 
     /* Expand the input spec using RMS, since we do not want to put
      * ACLs on the target of a symbolic link */
@@ -5033,114 +5117,40 @@ vms_rename_with_acl(pTHX_ struct dsc$descriptor_s * vms_src_dsc,
     if (vmsname == NULL)
         return SS$_INSFMEM;
 
-    rslt = int_rmsexpand_tovms(vms_src_dsc->dsc$a_pointer,
-                        vmsname,
-                        PERL_RMSEXPAND_M_SYMLINK);
+    rslt = int_rmsexpand_tovms(vms_src_dsc->dsc$a_pointer, vmsname,
+                               PERL_RMSEXPAND_M_SYMLINK);
     if (rslt == NULL) {
         PerlMem_free(vmsname);
         return SS$_INSFMEM;
     }
 
-    /* So we get our own UIC to use as a rights identifier,
-     * and the insert an ACE at the head of the ACL which allows us
-     * to delete the file.
-     */
-    _ckvmssts_noperl(lib$getjpi(&jpicode,0,0,&(oldace.ace$l_key),0,0));
-
     fildsc.dsc$w_length = strlen(vmsname);
     fildsc.dsc$a_pointer = vmsname;
-    ctx = 0;
-    newace.ace$l_key = oldace.ace$l_key;
-    rnsts = SS$_ABORT;
 
-    /* Grab any existing ACEs with this identifier in case we fail */
-    clean_dsc = &fildsc;
-    aclsts = fndsts = sys$get_security(&obj_file_dsc,
-                               &fildsc,
-                               NULL,
-                               OSS$M_WLOCK,
-                               findlst,
-                               &ctx,
-                               &access_mode);
+    /* add full control ACE */
+    
+    int aclsts = vms_add_control_ace(vms_src_dsc, &oldace, &newace);
 
-    if ($VMS_STATUS_SUCCESS(fndsts)  || (fndsts == SS$_ACLEMPTY)) {
-        /* Add the new ACE . . . */
+    if (!$VMS_STATUS_SUCCESS(aclsts)) {
+        set_errno(EVMSERR);
+        set_vaxc_errno(aclsts);
+        PerlMem_free(vmsname);
+        return aclsts;
+    }
 
-        /* if the sys$get_security succeeded, then ctx is valid, and the
-         * object/file descriptors will be ignored.  But otherwise they
-         * are needed
-         */
-        aclsts = sys$set_security(&obj_file_dsc, &fildsc, NULL,
-                                  OSS$M_RELCTX, addlst, &ctx, &access_mode);
-        if (!$VMS_STATUS_SUCCESS(aclsts) && (aclsts != SS$_NOCLASS)) {
-            set_errno(EVMSERR);
-            set_vaxc_errno(aclsts);
-            PerlMem_free(vmsname);
-            return aclsts;
-        }
-
-        rnsts = lib$rename_file(vms_src_dsc, vms_dst_dsc,
-                                NULL, NULL,
-                                &flags,
+    int rnsts = lib$rename_file(vms_src_dsc, vms_dst_dsc, NULL, NULL, &flags,
                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
-        if ($VMS_STATUS_SUCCESS(rnsts)) {
-            clean_dsc = (struct dsc$descriptor_s *)vms_dst_dsc;
-        }
-
-        /* Put things back the way they were. */
-        ctx = 0;
-        aclsts = sys$get_security(&obj_file_dsc,
-                                  clean_dsc,
-                                  NULL,
-                                  OSS$M_WLOCK,
-                                  findlst,
-                                  &ctx,
-                                  &access_mode);
-
-        if ($VMS_STATUS_SUCCESS(aclsts)) {
-        int sec_flags;
-
-            sec_flags = 0;
-            if (!$VMS_STATUS_SUCCESS(fndsts))
-                sec_flags = OSS$M_RELCTX;
-
-            /* Get rid of the new ACE */
-            aclsts = sys$set_security(NULL, NULL, NULL,
-                                  sec_flags, dellst, &ctx, &access_mode);
-
-            /* If there was an old ACE, put it back */
-            if ($VMS_STATUS_SUCCESS(aclsts) && $VMS_STATUS_SUCCESS(fndsts)) {
-                addlst[0].ile3$ps_bufaddr = &oldace;
-                aclsts = sys$set_security(NULL, NULL, NULL,
-                                      OSS$M_RELCTX, addlst, &ctx, &access_mode);
-                if (!$VMS_STATUS_SUCCESS(aclsts) && (aclsts != SS$_NOCLASS)) {
-                    set_errno(EVMSERR);
-                    set_vaxc_errno(aclsts);
-                    rnsts = aclsts;
-                }
-            } else {
-            int aclsts2;
-
-                /* Try to clear the lock on the ACL list */
-                aclsts2 = sys$set_security(NULL, NULL, NULL,
-                                      OSS$M_RELCTX, NULL, &ctx, &access_mode);
-
-                /* Rename errors are most important */
-                if (!$VMS_STATUS_SUCCESS(rnsts))
-                    aclsts = rnsts;
-                set_errno(EVMSERR);
-                set_vaxc_errno(aclsts);
-                rnsts = aclsts;
-            }
-        }
-        else {
-            if (aclsts != SS$_ACLEMPTY)
-                rnsts = aclsts;
-        }
+    struct dsc$descriptor_s *clean_dsc;
+    if ($VMS_STATUS_SUCCESS(rnsts)) {
+        clean_dsc = vms_dst_dsc;
+    } else {
+        clean_dsc = vms_src_dsc;
     }
-    else
-        rnsts = fndsts;
+
+    /* remove full control ACE from the renamed or original filename */
+
+    vms_remove_control_ace(clean_dsc, &oldace, &newace);
 
     PerlMem_free(vmsname);
     return rnsts;
