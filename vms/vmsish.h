@@ -581,10 +581,8 @@ struct passwd {
  * members to the real names.
  */
 
-#if defined(__DECC) || defined(__DECCXX)
-#  pragma __member_alignment __save
-#  pragma member_alignment
-#endif
+#pragma __member_alignment __save
+#pragma member_alignment
 
 typedef unsigned mydev_t;
 #if !defined(_USE_STD_STAT) && !defined(_LARGEFILE)
@@ -626,9 +624,7 @@ struct mystat
 #define VMS_INO_T_COPY(__a, __b) memcpy(&__a, &__b, 6)
 #endif
 
-#if defined(__DECC) || defined(__DECCXX)
-#  pragma __member_alignment __restore
-#endif
+#pragma __member_alignment __restore
 
 #ifndef DONT_MASK_RTL_CALLS  /* defined for vms.c so we can see RTL calls */
 #  ifdef stat
@@ -826,4 +822,12 @@ long int lroundl(long double __x);
 #ifdef USE_LONG_DOUBLE
 #  define NAN_COMPARE_BROKEN 1
 #endif
+
+/* Some system services aren't 64-bit pointer clean, like sys$filescan. */
+#if __INITIAL_POINTER_SIZE || defined(__clang__)
+#define malloc(size)            _malloc32(size)
+#define calloc(num, size)       _calloc32(num, size)
+#define realloc(ptr, size)      _realloc32(ptr, size)
+#endif
+
 #endif  /* __vmsish_h_included */

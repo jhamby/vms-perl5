@@ -759,18 +759,18 @@ vms_split_path(const char * path, char * * volume, int * vol_len, char * * root,
 
     /* set the volume name */
     if (item_list[nodespec].ile2$w_length > 0) {
-        *volume = item_list[nodespec].ile2$ps_bufaddr;
+        *volume = (char *) item_list[nodespec].ile2$ps_bufaddr;
         *vol_len = item_list[nodespec].ile2$w_length + item_list[devspec].ile2$w_length;
     }
     else {
-        *volume = item_list[devspec].ile2$ps_bufaddr;
+        *volume = (char *) item_list[devspec].ile2$ps_bufaddr;
         *vol_len = item_list[devspec].ile2$w_length;
     }
 
-    *root = item_list[rootspec].ile2$ps_bufaddr;
+    *root = (char *) item_list[rootspec].ile2$ps_bufaddr;
     *root_len = item_list[rootspec].ile2$w_length;
 
-    *dir = item_list[dirspec].ile2$ps_bufaddr;
+    *dir = (char *) item_list[dirspec].ile2$ps_bufaddr;
     *dir_len = item_list[dirspec].ile2$w_length;
 
     /* Now fun with versions and EFS file specifications
@@ -780,19 +780,19 @@ vms_split_path(const char * path, char * * volume, int * vol_len, char * * root,
     if ((DECC_EFS_CHARSET) &&
         (item_list[verspec].ile2$w_length > 0) &&
         (((char *)item_list[verspec].ile2$ps_bufaddr)[0] == '.')) {
-        *name = item_list[namespec].ile2$ps_bufaddr;
+        *name = (char *) item_list[namespec].ile2$ps_bufaddr;
         *name_len = item_list[namespec].ile2$w_length + item_list[typespec].ile2$w_length;
-        *ext = item_list[verspec].ile2$ps_bufaddr;
+        *ext = (char *) item_list[verspec].ile2$ps_bufaddr;
         *ext_len = item_list[verspec].ile2$w_length;
         *version = NULL;
         *ver_len = 0;
     }
     else {
-        *name = item_list[namespec].ile2$ps_bufaddr;
+        *name = (char *) item_list[namespec].ile2$ps_bufaddr;
         *name_len = item_list[namespec].ile2$w_length;
-        *ext = item_list[typespec].ile2$ps_bufaddr;
+        *ext = (char *) item_list[typespec].ile2$ps_bufaddr;
         *ext_len = item_list[typespec].ile2$w_length;
-        *version = item_list[verspec].ile2$ps_bufaddr;
+        *version = (char *) item_list[verspec].ile2$ps_bufaddr;
         *ver_len = item_list[verspec].ile2$w_length;
     }
     return ret_stat;
@@ -1150,9 +1150,9 @@ Perl_my_getenv(pTHX_ const char *lnm, bool sys)
       /* If the name contains a semicolon-delimited index, parse it
        * off and make sure we only retrieve the equivalence name for 
        * that index.  */
-      if ((cp2 = strchr(lnm,';')) != NULL) {
-        my_strlcpy(uplnm, lnm, cp2 - lnm + 1);
-        idx = strtoul(cp2+1,NULL,0);
+      if ((cp1 = strchr(lnm,';')) != NULL) {
+        my_strlcpy(uplnm, lnm, cp1 - lnm + 1);
+        idx = strtoul(cp1+1,NULL,0);
         lnm = uplnm;
         flags &= ~PERL__TRNENV_JOIN_SEARCHLIST;
       }
@@ -1237,9 +1237,9 @@ Perl_my_getenv_len(pTHX_ const char *lnm, unsigned long *len, bool sys)
 
       flags |= PERL__TRNENV_JOIN_SEARCHLIST;
 
-      if ((cp2 = strchr(lnm,';')) != NULL) {
-        my_strlcpy(buf, lnm, cp2 - lnm + 1);
-        idx = strtoul(cp2+1,NULL,0);
+      if ((cp1 = strchr(lnm,';')) != NULL) {
+        my_strlcpy(buf, lnm, cp1 - lnm + 1);
+        idx = strtoul(cp1+1,NULL,0);
         lnm = buf;
         flags &= ~PERL__TRNENV_JOIN_SEARCHLIST;
       }
@@ -3950,7 +3950,7 @@ create_forked_xterm(pTHX_ const char *cmd, const char *mode)
 {
     int status;
     int ret_stat;
-    char * ret_char;
+    const char * ret_char;
     char device_name[65];
     unsigned short device_name_len;
     struct dsc$descriptor_s customization_dsc;
@@ -7005,8 +7005,8 @@ Perl_pathify_dirspec_utf8_ts(pTHX_ const char *dir, char *buf, int *utf8_fl)
 static char *
 int_tounixspec(const char *spec, char *rslt, int * utf8_fl)
 {
-  char *dirend, *cp1, *cp3, *tmp;
-  const char *cp2;
+  char *cp1, *cp3, *tmp;
+  const char *dirend, *cp2, *cp4;
   int dirlen;
   unsigned short int trnlnm_iter_count;
   int cmp_rslt, outchars_added;
@@ -7054,7 +7054,7 @@ int_tounixspec(const char *spec, char *rslt, int * utf8_fl)
       }
       uspec = decc$translate_vms(tunix);
       PerlMem_free(tunix);
-      if ((int)uspec > 0) {
+      if ((ptrdiff_t)uspec > 0) {
         my_strlcpy(rslt, uspec, VMS_MAXRSS);
         if (nl_flag) {
           strcat(rslt,"\n");
@@ -7069,21 +7069,21 @@ int_tounixspec(const char *spec, char *rslt, int * utf8_fl)
   }
 
   cmp_rslt = 0; /* Presume VMS */
-  cp1 = strchr(spec, '/');
-  if (cp1 == NULL)
+  cp4 = strchr(spec, '/');
+  if (cp4 == NULL)
     cmp_rslt = 0;
 
     /* Look for EFS ^/ */
     if (DECC_EFS_CHARSET) {
-      while (cp1 != NULL) {
-        cp2 = cp1 - 1;
+      while (cp4 != NULL) {
+        cp2 = cp4 - 1;
         if (*cp2 != '^') {
           /* Found illegal VMS, assume UNIX */
           cmp_rslt = 1;
           break;
         }
-      cp1++;
-      cp1 = strchr(cp1, '/');
+      cp4++;
+      cp4 = strchr(cp4, '/');
     }
   }
 
@@ -7654,7 +7654,7 @@ posix_root_to_vms(char *vmspath, int vmspath_len,
 static int 
 slash_dev_special_to_vms(const char *unixptr, char *vmspath, int vmspath_len)
 {
-    char * nextslash;
+    const char * nextslash;
     int len;
 
     unixptr += 4;
@@ -7772,7 +7772,7 @@ posix_to_vmsspec_hardway(char *vmspath, int vmspath_len, const char *unixpath,
     /* If allowing logical names on relative pathnames, then handle here */
     if ((unixptr[0] != '.') && !DECC_DISABLE_TO_VMS_LOGNAME_TRANSLATION &&
         !DECC_POSIX_COMPLIANT_PATHNAMES) {
-    char * nextslash;
+    const char * nextslash;
     int seg_len;
     char * trn;
     int islnm;
@@ -7977,7 +7977,7 @@ posix_to_vmsspec_hardway(char *vmspath, int vmspath_len, const char *unixpath,
   }
   else {	/* Absolute PATH handling */
   int sts;
-  char * nextslash;
+  const char * nextslash;
   int seg_len;
     /* Need to find out where root is */
 
@@ -8391,8 +8391,8 @@ posix_to_vmsspec_hardway(char *vmspath, int vmspath_len, const char *unixpath,
 static char *
 int_tovmsspec(const char *path, char *rslt, int dir_flag, int * utf8_flag)
 {
-  char *dirend;
-  char *lastdot;
+  const char *dirend;
+  const char *lastdot;
   char *cp1;
   const char *cp2;
   unsigned int infront = 0, hasdir = 1;
@@ -11960,7 +11960,11 @@ Perl_cando_by_name_int(pTHX_ I32 bit, bool effective, const char *fname, int opt
   usrprodsc.dsc$w_length = profile_len;
 
   /* use the profile to check access to the file; free profile & analyze results */
+#ifdef __clang__
+  retsts = SS$_NOCALLPRIV;  /* HACK */
+#else
   retsts = sys$check_access(&objtyp,&namdsc,0,armlst,&profile_context,0,0,&usrprodsc);
+#endif
   PerlMem_free(usrprodsc.dsc$a_pointer);
   if (retsts == SS$_NOCALLPRIV) retsts = SS$_NOPRIV; /* not really 3rd party */
 
@@ -13037,7 +13041,7 @@ Perl_vms_start_glob(pTHX_ SV *tmpglob, IO *io)
         int stat_sts;
         stat_sts = PerlLIO_stat(SvPVX_const(tmpglob),&st);
         if (!stat_sts && S_ISDIR(st.st_mode)) {
-            char * vms_dir;
+            const char * vms_dir;
             const char * fname;
             STRLEN fname_len;
 
@@ -13685,7 +13689,7 @@ mp_do_vms_realpath(pTHX_ const char *filespec, char *outbuf,
                         }
                     } else {
                         /* This must be UNIX */
-                        char * tchar;
+                        const char * tchar;
 
                         tchar = strrchr(filespec, '/');
 
