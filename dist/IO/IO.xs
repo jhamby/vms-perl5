@@ -72,8 +72,6 @@ static int
 io_blocking(pTHX_ InputStream f, int block)
 {
     int fd = -1;
-#if defined(HAS_FCNTL)
-    int RETVAL;
     if (!f) {
 	errno = EBADF;
 	return -1;
@@ -83,16 +81,17 @@ io_blocking(pTHX_ InputStream f, int block)
       errno = EBADF;
       return -1;
     }
-    RETVAL = fcntl(fd, F_GETFL, 0);
+#if defined(HAS_FCNTL)
+    int RETVAL = fcntl(fd, F_GETFL, 0);
     if (RETVAL >= 0) {
 	int mode = RETVAL;
 	int newmode = mode;
-#ifdef O_NONBLOCK
+#  ifdef O_NONBLOCK
 	/* POSIX style */
 
-# ifndef O_NDELAY
-#  define O_NDELAY O_NONBLOCK
-# endif
+#    ifndef O_NDELAY
+#      define O_NDELAY O_NONBLOCK
+#    endif
 	/* Note: UNICOS and UNICOS/mk a F_GETFL returns an O_NDELAY
 	 * after a successful F_SETFL of an O_NONBLOCK. */
 	RETVAL = RETVAL & (O_NONBLOCK | O_NDELAY) ? 0 : 1;
@@ -103,7 +102,7 @@ io_blocking(pTHX_ InputStream f, int block)
 	} else if (block > 0) {
 	    newmode &= ~(O_NDELAY|O_NONBLOCK);
 	}
-#else
+#  else
 	/* Not POSIX - better have O_NDELAY or we can't cope.
 	 * for BSD-ish machines this is an acceptable alternative
 	 * for SysV we can't tell "would block" from EOF but that is
@@ -116,7 +115,7 @@ io_blocking(pTHX_ InputStream f, int block)
 	} else if (block > 0) {
 	    newmode &= ~O_NDELAY;
 	}
-#endif
+#  endif
 	if (newmode != mode) {
             const int ret = fcntl(fd, F_SETFL, newmode);
 	    if (ret < 0)
@@ -124,13 +123,12 @@ io_blocking(pTHX_ InputStream f, int block)
 	}
     }
     return RETVAL;
-#else
-#   ifdef WIN32
+#elif defined(WIN32)
     if (block >= 0) {
 	unsigned long flags = !block;
 	/* ioctl claims to take char* but really needs a u_long sized buffer */
-	const int ret = ioctl(fd, FIONBIO, (char*)&flags);
-	if (ret != 0)
+
+	if (ioctl(fd, FIONBIO, (char*)&flags) != 0)
 	    return -1;
 	/* Win32 has no way to get the current blocking status of a socket.
 	 * However, we don't want to just return undef, because there's no way
@@ -140,9 +138,8 @@ io_blocking(pTHX_ InputStream f, int block)
     }
     /* TODO: Perhaps set $! to ENOTSUP? */
     return -1;
-#   else
+#else
     return -1;
-#   endif
 #endif
 }
 
