@@ -736,14 +736,18 @@ int	Perl_flex_lstat (pTHX_ const char *, Stat_t *);
 int	Perl_flex_stat (pTHX_ const char *, Stat_t *);
 int	my_vfork (void);
 bool	Perl_vms_do_exec (pTHX_ const char *);
+#ifdef VMS_WRAP_SOCKETS
 FILE *  my_fdopen (int, const char *);
 int     my_fclose (FILE *);
 int     my_fwrite (const void *, size_t, size_t, FILE *);
+#endif /* VMS_WRAP_SOCKETS */
 char *  Perl_my_fgetname (FILE *fp, char *buf);
 #ifdef HAS_SYMLINK
 int     Perl_my_symlink(pTHX_ const char *path1, const char *path2);
 #endif
+#ifdef VMS_WRAP_SOCKETS
 int	Perl_my_flush (pTHX_ FILE *);
+#endif /* VMS_WRAP_SOCKETS */
 struct passwd *	Perl_my_getpwnam (pTHX_ const char *name);
 struct passwd *	Perl_my_getpwuid (pTHX_ Uid_t uid);
 void	Perl_my_endpwent (pTHX);

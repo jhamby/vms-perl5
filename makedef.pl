@@ -1013,11 +1013,7 @@ elsif (PLATFORM eq 'vms') {
 		      Perl_my_chmod
 		      Perl_my_crypt
 		      Perl_my_endpwent
-		      Perl_my_fclose
-		      Perl_my_fdopen
 		      Perl_my_fgetname
-		      Perl_my_flush
-		      Perl_my_fwrite
 		      Perl_my_gconvert
 		      Perl_my_getenv
 		      Perl_my_getenv_len
