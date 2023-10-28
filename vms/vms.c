@@ -9767,7 +9767,10 @@ vms_image_init(int *argcp, char ***argvp)
   }
   if (tabidx) { tabvec[tabidx] = NULL; env_tables = tabvec; }
 
-  /* Strip off any file version from our argv0. */
+  /* If this does a background restart, we'll want to call the same version. */
+  getredirection(argcp,argvp);
+
+  /* Else, strip off any version from argv0 to avoid copying it into files. */
   char *argv0 = **argvp;
   char *last_semi = strrchr(argv0, ';');
   if (last_semi && last_semi != argv0 && *(last_semi-1) != '^') {
@@ -9783,7 +9786,6 @@ vms_image_init(int *argcp, char ***argvp)
     }
   }
 
-  getredirection(argcp,argvp);
 #if defined(USE_ITHREADS) && ( defined(__DECC) || defined(__DECCXX) )
   {
 # include <reentrancy.h>
