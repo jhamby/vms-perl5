@@ -42,7 +42,6 @@
 #define _tolower(c) (((c) < 'A' || (c) > 'Z') ? (c) : (c) | 040)
 
 /* Assorted things to look like Unix */
-#include <processes.h> /* for vfork() */
 #include <unixio.h>
 #include <unixlib.h>
 #include <file.h>  /* it's not <sys/file.h>, so don't use I_SYS_FILE */
@@ -157,7 +156,6 @@
 #define my_tmpfile			Perl_my_tmpfile
 #define my_trnlnm(a,b,c)		Perl_my_trnlnm(aTHX_ a,b,c)
 #define my_utime(a,b)			Perl_my_utime(aTHX_ a,b)
-#define my_vfork			Perl_my_vfork
 #define my_waitpid(a,b,c)		Perl_my_waitpid(aTHX_ a,b,c)
 #define pathify_dirspec(a,b)		Perl_pathify_dirspec(aTHX a,b)
 #define pathify_dirspec_ts(a,b)		Perl_pathify_dirspec_ts(aTHX a,b)
@@ -198,18 +196,6 @@
 
 /* Delete if at all possible, changing protections if necessary. */
 #define unlink(a) kill_file(a)
-
-/* 
- * Intercept calls to fork, so we know whether subsequent calls to
- * exec should be handled in VMSish or Unixish style.
- */
-#define fork my_vfork
-#ifndef DONT_MASK_RTL_CALLS     /* #defined in vms.c so we see real vfork */
-#  ifdef vfork
-#    undef vfork
-#  endif
-#  define vfork my_vfork
-#endif
 
 /*
  * Toss in a shim to tmpfile which creates a plain temp file if the
@@ -734,7 +720,6 @@ I32	Perl_cando_by_name (pTHX_ I32, bool, const char *);
 int	Perl_flex_fstat (pTHX_ int, Stat_t *);
 int	Perl_flex_lstat (pTHX_ const char *, Stat_t *);
 int	Perl_flex_stat (pTHX_ const char *, Stat_t *);
-int	my_vfork (void);
 bool	Perl_vms_do_exec (pTHX_ const char *);
 #ifdef VMS_WRAP_SOCKETS
 FILE *  my_fdopen (int, const char *);

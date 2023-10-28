@@ -76,7 +76,7 @@
 /* We implement I/O here, so we will be mixing PerlIO and stdio calls. */
 #define PERLIO_NOT_STDIO 0 
 
-/* Don't replace system definitions of vfork, getenv, lstat, and stat, 
+/* Don't replace system definitions of getenv, lstat, and stat, 
  * code below needs to get to the underlying CRTL routines. */
 #define DONT_MASK_RTL_CALLS
 #include "EXTERN.h"
@@ -10420,14 +10420,9 @@ Perl_seekdir(pTHX_ DIR *dd, long count)
 
 /* VMS subprocess management
  *
- * my_vfork() - just a vfork(), after setting a flag to record that
- * the current script is trying a Unix-style fork/exec.
- *
  * vms_do_aexec() and vms_do_exec() are called in response to the
- * perl 'exec' function.  If this follows a vfork call, then they
- * call out the regular perl routines in doio.c which do an
- * execvp (for those who really want to try this under VMS).
- * Otherwise, they do exactly what the perl docs say exec should
+ * perl 'exec' function.  Perl scripts can't call vfork(), so
+ * these always do exactly what the perl docs say exec should
  * do - terminate the current script and invoke a new command
  * (See below for notes on command syntax.)
  *
@@ -10447,18 +10442,6 @@ Perl_seekdir(pTHX_ DIR *dd, long count)
  * but I hope it will form a happy medium between what VMS folks expect
  * from lib$spawn and what Unix folks expect from exec.
  */
-
-static int vfork_called;
-
-/*{{{int my_vfork(void)*/
-int
-my_vfork(void)
-{
-  vfork_called++;
-  return vfork();
-}
-/*}}}*/
-
 
 static void
 vms_execfree(struct dsc$descriptor_s *vmscmd) 
@@ -10928,15 +10911,6 @@ Perl_vms_do_aexec(pTHX_ SV *really,SV **mark,SV **sp)
   bool exec_sts;
   char * cmd;
 
-  if (vfork_called) {           /* this follows a vfork - act Unixish */
-    vfork_called--;
-    if (vfork_called < 0) {
-      Perl_warn(aTHX_ "Internal inconsistency in tracking vforks");
-      vfork_called = 0;
-    }
-    else return do_aexec(really,mark,sp);
-  }
-                                           /* no vfork - act VMSish */
   if (sp > mark) {
     ENTER;
     cmd = setup_argstr(aTHX_ really,mark,sp);
@@ -10956,16 +10930,6 @@ Perl_vms_do_exec(pTHX_ const char *cmd)
 {
   struct dsc$descriptor_s *vmscmd;
 
-  if (vfork_called) {             /* this follows a vfork - act Unixish */
-    vfork_called--;
-    if (vfork_called < 0) {
-      Perl_warn(aTHX_ "Internal inconsistency in tracking vforks");
-      vfork_called = 0;
-    }
-    else return do_exec(cmd);
-  }
-
-  {                               /* no vfork - act VMSish */
     unsigned int retsts;
 
     TAINT_ENV();
@@ -10997,7 +10961,6 @@ Perl_vms_do_exec(pTHX_ const char *cmd)
              vmscmd->dsc$w_length, vmscmd->dsc$a_pointer, Strerror(errno));
     }
     vms_execfree(vmscmd);
-  }
 
   return FALSE;
 
