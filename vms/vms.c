@@ -9767,6 +9767,22 @@ vms_image_init(int *argcp, char ***argvp)
   }
   if (tabidx) { tabvec[tabidx] = NULL; env_tables = tabvec; }
 
+  /* Strip off any file version from our argv0. */
+  char *argv0 = **argvp;
+  char *last_semi = strrchr(argv0, ';');
+  if (last_semi && last_semi != argv0 && *(last_semi-1) != '^') {
+    char *version = last_semi;
+    while (*(++version)) {
+      if (*version < '0' || *version > '9') {
+        last_semi = NULL;
+        break;
+      }
+    }
+    if (last_semi) {
+      *last_semi = '\0';
+    }
+  }
+
   getredirection(argcp,argvp);
 #if defined(USE_ITHREADS) && ( defined(__DECC) || defined(__DECCXX) )
   {
