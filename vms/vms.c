@@ -4296,14 +4296,12 @@ safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
 
     if ((p = strchr(mode,'F')) != NULL) {   /* F -> use FILE* */
         info->useFILE = 1;
-        strcpy(p,p+1);
     }
     if ((p = strchr(mode,'W')) != NULL) {   /* W -> wait for completion */
         wait = 1;
-        strcpy(p,p+1);
     }
 
-    if (*mode == 'r') {             /* piping from subroutine */
+    if (strchr(mode,'r') != NULL) {         /* piping from subroutine */
 
         info->out = pipe_infromchild_setup(aTHX_ mbx,out);
         if (info->out) {
@@ -4349,7 +4347,7 @@ safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
             info->err->info = info;
         }
 
-    } else if (*mode == 'w') {      /* piping to subroutine */
+    } else if (strchr(mode,'w') != NULL) {  /* piping to subroutine */
 
         info->out = pipe_mbxtofd_setup(aTHX_ fileno(stdout), out);
         if (info->out) {
@@ -4407,7 +4405,7 @@ safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
         }
         
 
-    } else if (*mode == 'n') {       /* separate subprocess, no Perl i/o */
+    } else if (strchr(mode,'n') != NULL) {  /* separate subprocess, no Perl i/o */
         /* Let the child inherit standard input, unless it's a directory. */
         Stat_t st;
         if (my_trnlnm("SYS$INPUT", in, 0)) {
