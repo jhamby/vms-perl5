@@ -11102,6 +11102,7 @@ do_spawn2(pTHX_ const char *cmd, int flags)
 }  /* end of do_spawn2() */
 /*}}}*/
 
+#ifdef VMS_WRAP_SOCKETS
 
 static unsigned int *sockflags, sockflagsize;
 
@@ -11224,6 +11225,8 @@ Perl_my_flush(pTHX_ FILE *fp)
     return res;
 }
 /*}}}*/
+
+#endif /* VMS_WRAP_SOCKETS */
 
 /* fgetname() is not returning the correct file specifications when
  * decc_filename_unix_report mode is active.  So we have to have it

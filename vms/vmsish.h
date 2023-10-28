@@ -134,10 +134,12 @@
 #define my_chmod(a,b)			Perl_my_chmod(aTHX_ a,b)
 #define my_crypt(a,b)			Perl_my_crypt(aTHX_ a,b)
 #define my_endpwent()			Perl_my_endpwent(aTHX)
-#define my_fclose(a)			Perl_my_fclose(a)
-#define my_fdopen(a,b)			Perl_my_fdopen(a,b)
-#define my_flush(a)			Perl_my_flush(aTHX_ a)
-#define my_fwrite(a,b,c,d)		Perl_my_fwrite(a,b,c,d)
+#ifdef VMS_WRAP_SOCKETS
+#  define my_fclose(a)			Perl_my_fclose(a)
+#  define my_fdopen(a,b)		Perl_my_fdopen(a,b)
+#  define my_flush(a)			Perl_my_flush(aTHX_ a)
+#  define my_fwrite(a,b,c,d)		Perl_my_fwrite(a,b,c,d)
+#endif
 #define my_fgetname(a,b)		Perl_my_fgetname(a,b)
 #define my_gconvert(a,b,c,d)		Perl_my_gconvert(a,b,c,d)
 #define my_getenv(a,b)			Perl_my_getenv(aTHX_ a,b)
@@ -404,9 +406,11 @@ struct interp_intern {
 
 
 #ifndef DONT_MASK_RTL_CALLS
+# ifdef VMS_WRAP_SOCKETS
 #  define fwrite my_fwrite     /* for PerlSIO_fwrite */
 #  define fdopen my_fdopen
 #  define fclose my_fclose
+# endif
 #  define fgetname(a, b) my_fgetname(a, b)
 #ifdef HAS_SYMLINK
 #  define symlink my_symlink
@@ -415,7 +419,11 @@ struct interp_intern {
 
 
 /* By default, flush data all the way to disk, not just to RMS buffers */
+#ifdef VMS_WRAP_SOCKETS
 #define Fflush(fp) my_flush(fp)
+#else
+#define Fflush(fp) fflush(fp)
+#endif
 
 /* Use our own rmdir() */
 #ifndef DONT_MASK_RTL_CALLS
