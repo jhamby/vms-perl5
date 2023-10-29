@@ -21,7 +21,7 @@
  */
 
 #define __NEW_STARLET 1
- 
+
 #include <acedef.h>
 #include <acldef.h>
 #include <armdef.h>
@@ -81,6 +81,7 @@
 #define DONT_MASK_RTL_CALLS
 #include "EXTERN.h"
 #include "perl.h"
+#include "perliol.h" /* For PerlIOUnix_refcnt */
 #include "XSUB.h"
 /* Anticipating future expansion in lexical warnings . . . */
 #ifndef WARN_INTERNAL
@@ -4144,9 +4145,196 @@ create_forked_xterm(pTHX_ const char *cmd, const char *mode)
 
 static I32 my_pclose_pinfo(pTHX_ pInfo info);
 
+  /* Roll our own prototype because we want this regardless of whether
+   * _VMS_WAIT is defined.
+   */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+  __pid_t __vms_waitpid( __pid_t __pid, int *__stat_loc, int __options );
+#ifdef __cplusplus
+}
+#endif
+
+static PerlIO *
+vfork_popen(pTHX_ char *argv0, const char *rest, const char *mode,
+            int *psts)
+{
+    char args_copy[VMS_MAXRSS];
+    char *new_argv[VMS_MAXRSS / 2];     /* worst-case argv scenario */
+
+    int argc = 0;
+
+#if 0
+    if (!int_rmsexpand_tovms(argv0 + 1, args_copy, 0)) {
+        errno = ENOMEM;
+        return NULL;
+    }
+    new_argv[argc++] = args_copy;
+    char *copy_pos = args_copy + strlen(args_copy) + 1;
+#else
+    new_argv[argc++] = argv0 + 1;
+    char *copy_pos = args_copy;
+#endif
+
+    /* Skip to first argument */
+    while (*rest && isSPACE_L1(*rest)) rest++;
+
+    while (*rest) {
+        char *arg_start = copy_pos;
+
+        if (*rest == '"') {
+            /* Copy quoted arg (VMS-style) */
+            rest++;
+            while (*rest) {
+                /* closing quote followed by whitespace or null */
+                if (*rest == '"' && (*(rest+1) == '\0'
+                                     || isSPACE_L1(*(rest+1)))) {
+                    rest++;
+                    break;
+                } else if (*rest == '"' && *(rest+1) == '"') {
+                    /* copy a single quotation mark */
+                    rest++;
+                }
+                *(copy_pos++) = *(rest++);
+            }
+        } else {
+            /* Copy non-quoted arg */
+            while (*rest && !isSPACE_L1(*rest)) {
+                *(copy_pos++) = *(rest++);
+            }
+        }
+        *(copy_pos++) = '\0';
+        new_argv[argc++] = arg_start;
+
+        /* Skip whitespace between args */
+        while (*rest && isSPACE_L1(*rest)) rest++;
+    }
+
+    new_argv[argc] = '\0';      /* terminate argv list */
+
+#if ARGPROC_DEBUG
+    for (int i = 0; i < argc; i++) {
+        fprintf(stderr, "vfork_popen argv[%d] = '%s'\n", i, new_argv[i]);
+    }
+    fprintf(stderr, "vfork_popen mode is '%s'\n", mode);
+#endif
+
+    bool wait = (strchr(mode, 'W'));    /* W -> wait for completion */
+
+    int pipefds[2], mine = 0, child = 0;
+
+    if (strchr(mode,'r') || strchr(mode,'w')) {
+        if (pipe(pipefds) < 0)
+            return NULL;
+    }
+
+    if (strchr(mode,'r')) {
+        mine = pipefds[0];
+        child = pipefds[1];
+        setfd_cloexec(mine);
+        if (decc$set_child_standard_streams(-1, child, -1) < 0) {
+            return NULL;
+        }
+    } else if (strchr(mode,'w')) {
+        mine = pipefds[1];
+        child = pipefds[0];
+        setfd_cloexec(mine);
+        if (decc$set_child_standard_streams(child, -1, -1) < 0) {
+            return NULL;
+        }
+    }
+
+    int pid = vfork();
+    if (pid == 0) {
+        execv(new_argv[0], new_argv);
+        _exit(-1);
+    } else if (pid < 0) {
+//        fprintf(stderr, "vfork() returned pid %d errno %d\n", pid, errno);
+        return NULL;
+    }
+
+    if (mine) {
+        decc$set_child_standard_streams(-1, -1, -1);
+        /* Close the other end of the pipe */
+        close(child);
+        SV *sv = *av_fetch(PL_fdpid, mine, TRUE);
+        SvUPGRADE(sv,SVt_IV);
+        SvIV_set(sv, pid);
+//        fprintf(stderr, "setting %d to %d in PL_fdpid\n", mine, pid);
+        PerlIO *io = PerlIO_fdopen(mine, mode);
+        return io;
+    } else if (wait) {
+        int pid2, status = 0;
+        /* wait for child to exit */
+        do {
+            pid2 = __vms_waitpid( pid, &status, 0 );
+        } while (pid2 == -1 && errno == EINTR);
+
+        /* return with the waitpid exit status */
+        if (psts) *psts = status;
+        return NULL;
+    } else {
+        /* return immediately with pid */
+        if (psts) *psts = pid;
+        return NULL;
+    }
+}
+
 static PerlIO *
 safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
 {
+    /* Skip leading whitespace */
+    while (*cmd && isSPACE_L1(*cmd)) cmd++;
+
+    /* Use the vfork()/execv() fast path whenever it's safe */
+    bool fastpath = false;
+    char argv0[VMS_MAXRSS];
+    const char *wordbreak = strpbrk(cmd, " \"\t/");
+
+    if (!wordbreak) wordbreak = cmd + strlen(cmd);
+    if (*cmd == '$') {
+        fastpath = true;
+        strncpy(argv0, cmd, wordbreak - cmd);
+        argv0[wordbreak - cmd] = '\0';
+    } else if (*cmd == '/' || strpbrk(cmd, ":<[.;") < wordbreak) {
+        fastpath = true;
+        /* We'll start from argv0[1] later. */
+        argv0[0] = '$';
+
+        /* The command may include UNIX-style '/'. */
+        wordbreak = strpbrk(cmd, " \t");
+        if (!wordbreak) wordbreak = cmd + strlen(cmd);
+
+        strncpy(argv0 + 1, cmd, wordbreak - cmd);
+        argv0[wordbreak - cmd + 1] = '\0';
+    } else {
+        struct dsc$descriptor_s d_symbol =
+            {wordbreak - cmd, DSC$K_DTYPE_T, DSC$K_CLASS_S, (char *) cmd};
+        struct dsc$descriptor_s d_value =
+            {VMS_MAXRSS - 1, DSC$K_DTYPE_T, DSC$K_CLASS_S, argv0};
+
+        unsigned short val_len;
+        unsigned int sts = lib$get_symbol(&d_symbol, &d_value, &val_len);
+        if ($VMS_STATUS_SUCCESS(sts) && val_len < VMS_MAXRSS &&
+            (argv0[0] == '$')) {
+            fastpath = true;
+            argv0[val_len] = '\0';
+        }
+    }
+
+#ifdef ARGPROC_DEBUG
+    if (fastpath) {
+        fprintf(stderr, "fastpath for cmd='%s' rest='%s'\n",
+                argv0, wordbreak);
+    } else {
+        fprintf(stderr, "safe_popen for cmd='%s'\n", cmd);
+    }
+#endif
+
+    if (fastpath) return vfork_popen(argv0, wordbreak, in_mode, psts);
+
     static int handler_set_up = FALSE;
     PerlIO * ret_fp;
     unsigned int sts, flags = CLI$M_NOWAIT;
@@ -4177,7 +4365,7 @@ safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
      * "3>&1 xterm\b" and "\btty 1>&3\b$" in the command, and that it
      *  is possible to create an xterm.
      */
-    if (*in_mode == 'r') {
+    if (strchr(mode,'r') != NULL) {
         PerlIO * xterm_fd;
 
 #if defined(MULTIPLICITY)
@@ -4530,6 +4718,7 @@ PerlIO *
 Perl_my_popen(pTHX_ const char *cmd, const char *mode)
 {
     int sts;
+    PERL_ARGS_ASSERT_MY_POPEN;
     TAINT_ENV();
     TAINT_PROPER("popen");
     PERL_FLUSHALL_FOR_CHILD;
@@ -4664,6 +4853,41 @@ my_pclose_pinfo(pTHX_ pInfo info) {
 /*{{{  I32 my_pclose(PerlIO *fp)*/
 I32 Perl_my_pclose(pTHX_ PerlIO *fp)
 {
+    const int fd = PerlIO_fileno(fp);
+//    fprintf(stderr, "Perl_my_pclose fd is %d\n", fd);
+
+    /* search for vfork/execv style pipe first */
+    SV **svp = av_fetch(PL_fdpid, fd, FALSE);
+    if (svp) {
+        Pid_t pid = (SvTYPE(*svp) == SVt_IV) ? SvIVX(*svp) : -1;
+        SvREFCNT_dec(*svp);
+        *svp = NULL;
+
+//        fprintf(stderr, "my_pclose pid %d fd %d\n", pid, fd);
+
+        /* behavior copied from generic Perl_my_pclose */
+        bool should_wait = PerlIOUnix_refcnt(fd) == 1 && pid > 0;
+        bool close_failed = (PerlIO_close(fp) == EOF);
+        int pid2 = 0, status = 0;
+        int saved_errno = errno;
+
+        if (should_wait) do {
+            pid2 = __vms_waitpid( pid, &status, 0 );
+        } while (pid2 == -1 && errno == EINTR);
+
+//        fprintf(stderr, "my_pclose waitpid %d status %d close_failed %d\n",
+//                pid2, status, close_failed);
+
+        if (close_failed) {
+            errno = saved_errno;
+            return -1;
+        }
+
+        return
+            should_wait ? (pid2 < 0 ? pid2
+                                    : (status == 0 ? 0 : (errno = 0, status))) : 0;
+    }
+
     pInfo info, last = NULL;
     I32 ret_status;
     
@@ -4682,18 +4906,6 @@ I32 Perl_my_pclose(pTHX_ PerlIO *fp)
     return ret_status;
 
 }  /* end of my_pclose() */
-
-  /* Roll our own prototype because we want this regardless of whether
-   * _VMS_WAIT is defined.
-   */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-  __pid_t __vms_waitpid( __pid_t __pid, int *__stat_loc, int __options );
-#ifdef __cplusplus
-}
-#endif
 
 /* sort-of waitpid; special handling of pipe clean-up for subprocesses 
    created with popen(); otherwise partially emulate waitpid() unless 
@@ -13840,7 +14052,9 @@ set_feature_default(const char *name, int value)
     /* Various things may check for an environment setting
      * rather than the feature directly, so set that too.
      */
-    vmssetuserlnm(name, value ? "ENABLE" : "DISABLE");
+    if (value < 2) {
+        vmssetuserlnm(name, value ? "ENABLE" : "DISABLE");
+    }
 
     return 0;
 }
@@ -13955,6 +14169,11 @@ vmsperl_set_features(void)
     set_feature_default("DECC$EFS_CASE_PRESERVE", 1);
     set_feature_default("DECC$ARGV_PARSE_STYLE", 1);     /* Requires extended parse. */
     set_feature_default("DECC$EFS_CHARSET", 1);
+
+    /* Set UNIX-style vfork()/execv() behavior */
+    set_feature_default("DECC$EXEC_FILEATTR_INHERITANCE", 1);
+    set_feature_default("DECC$EXIT_AFTER_FAILED_EXEC", 1);
+    set_feature_default("DECC$STREAM_PIPE", 1);
 
    /* If POSIX root doesn't exist or nothing has set it explicitly, we disable it,
     * which confusingly means enabling the feature.  For some reason only the default
