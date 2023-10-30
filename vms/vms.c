@@ -4298,6 +4298,8 @@ safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
         fastpath = true;
         strncpy(argv0, cmd, wordbreak - cmd);
         argv0[wordbreak - cmd] = '\0';
+    } else if (*cmd == '@') {
+        /* Don't try to exec scripts */
     } else if (*cmd == '/' || strpbrk(cmd, ":<[.;") < wordbreak) {
         fastpath = true;
         /* We'll start from argv0[1] later. */
