@@ -136,8 +136,10 @@
 #ifdef VMS_WRAP_SOCKETS
 #  define my_fclose(a)			Perl_my_fclose(a)
 #  define my_fdopen(a,b)		Perl_my_fdopen(a,b)
-#  define my_flush(a)			Perl_my_flush(aTHX_ a)
 #  define my_fwrite(a,b,c,d)		Perl_my_fwrite(a,b,c,d)
+#endif
+#ifdef VMS_FLUSH_TO_DISK
+#define my_flush(a)			Perl_my_flush(aTHX_ a)
 #endif
 #define my_fgetname(a,b)		Perl_my_fgetname(a,b)
 #define my_gconvert(a,b,c,d)		Perl_my_gconvert(a,b,c,d)
@@ -289,7 +291,14 @@ struct interp_intern {
 
 #define BIT_BUCKET "/dev/null"
 #define PERL_SYS_INIT_BODY(c,v)	MALLOC_CHECK_TAINT2(*c,*v) vms_image_init((c),(v)); PERLIO_INIT; MALLOC_INIT
-/* Use standard PERL_SYS_TERM_BODY */
+
+/* Customize to wait for pid in pipe-to-child vfork case */
+#define PERL_SYS_TERM_BODY()                                          \
+                    ENV_TERM; USER_PROP_MUTEX_TERM; LOCALE_TERM;        \
+                    HINTS_REFCNT_TERM; KEYWORD_PLUGIN_MUTEX_TERM;       \
+                    OP_CHECK_MUTEX_TERM; OP_REFCNT_TERM;                \
+                    PERLIO_TERM; MALLOC_TERM;                           \
+                    Perl_vms_vfork_exit_waitpid();
 
 #define dXSUB_SYS dNOOP
 #define HAS_KILL
@@ -404,8 +413,8 @@ struct interp_intern {
 #endif
 
 
+#ifdef VMS_FLUSH_TO_DISK
 /* By default, flush data all the way to disk, not just to RMS buffers */
-#ifdef VMS_WRAP_SOCKETS
 #define Fflush(fp) my_flush(fp)
 #else
 #define Fflush(fp) fflush(fp)
@@ -730,12 +739,13 @@ char *  Perl_my_fgetname (FILE *fp, char *buf);
 #ifdef HAS_SYMLINK
 int     Perl_my_symlink(pTHX_ const char *path1, const char *path2);
 #endif
-#ifdef VMS_WRAP_SOCKETS
+#ifdef VMS_FLUSH_TO_DISK
 int	Perl_my_flush (pTHX_ FILE *);
-#endif /* VMS_WRAP_SOCKETS */
+#endif
 struct passwd *	Perl_my_getpwnam (pTHX_ const char *name);
 struct passwd *	Perl_my_getpwuid (pTHX_ Uid_t uid);
 void	Perl_my_endpwent (pTHX);
+void	Perl_vms_vfork_exit_waitpid (void);
 
 /*
  * The following prototypes are in math.h but for some reason they

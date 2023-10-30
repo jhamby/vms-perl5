@@ -280,6 +280,9 @@ int vms_bug_stat_filename = 0;
 static int vms_debug_on_exception = 0;
 static int vms_debug_fileify = 0;
 
+/* Command-line pipes need to wait for child completion */
+static Pid_t pipe_and_fork_pid = 0;
+
 /* Simple logical name translation */
 static int
 simple_trnlnm(const char * logname, char * value, int value_len)
@@ -4157,6 +4160,16 @@ extern "C" {
 }
 #endif
 
+/* Exit handler to wait for any vfork pipe child to complete */
+void
+Perl_vms_vfork_exit_waitpid(void)
+{
+    if (pipe_and_fork_pid) {
+        close(1);
+        __vms_waitpid(pipe_and_fork_pid, NULL, 0);
+    }
+}
+
 static PerlIO *
 vfork_popen(pTHX_ char *argv0, const char *rest, const char *mode,
             int *psts)
@@ -4221,6 +4234,8 @@ vfork_popen(pTHX_ char *argv0, const char *rest, const char *mode,
     fprintf(stderr, "vfork_popen mode is '%s'\n", mode);
 #endif
 
+    bool use_stdout = (strchr(mode,'F'));   /* F -> redirect stdout */
+
     bool wait = (strchr(mode, 'W'));    /* W -> wait for completion */
 
     int pipefds[2], mine = 0, child = 0;
@@ -4255,16 +4270,32 @@ vfork_popen(pTHX_ char *argv0, const char *rest, const char *mode,
         return NULL;
     }
 
+    decc$set_child_standard_streams(-1, -1, -1);
     if (mine) {
-        decc$set_child_standard_streams(-1, -1, -1);
         /* Close the other end of the pipe */
         close(child);
-        SV *sv = *av_fetch(PL_fdpid, mine, TRUE);
-        SvUPGRADE(sv,SVt_IV);
-        SvIV_set(sv, pid);
-//        fprintf(stderr, "setting %d to %d in PL_fdpid\n", mine, pid);
-        PerlIO *io = PerlIO_fdopen(mine, mode);
-        return io;
+        /* Redirect our stdout to child for pipe_and_fork.
+         * Normal callers of popen() should never use "F".
+         * If they do, the return value of 1 will crash the
+         * interpreter if it tries to use the non-existent
+         * PerlIO object. Maybe pipe_and_fork() should have
+         * a private entry point for the "|" vfork code path.
+         */
+        if (use_stdout) {
+            close(1);
+            if (dup2(mine, 1) < 0) {
+                return NULL;
+            }
+            close(mine);
+            pipe_and_fork_pid = pid;
+            return (PerlIO *) 1;    /* non-NULL is success */
+        } else {
+            SV *sv = *av_fetch(PL_fdpid, mine, TRUE);
+            SvUPGRADE(sv,SVt_IV);
+            SvIV_set(sv, pid);
+            PerlIO *io = PerlIO_fdopen(mine, mode);
+            return io;
+        }
     } else if (wait) {
         int pid2, status = 0;
         /* wait for child to exit */
@@ -4285,6 +4316,9 @@ vfork_popen(pTHX_ char *argv0, const char *rest, const char *mode,
 static PerlIO *
 safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
 {
+    /* Flush I/O before continuing */
+    PERL_FLUSHALL_FOR_CHILD;
+
     /* Skip leading whitespace */
     while (*cmd && isSPACE_L1(*cmd)) cmd++;
 
@@ -4298,6 +4332,13 @@ safe_popen(pTHX_ const char *cmd, const char *in_mode, int *psts)
         fastpath = true;
         strncpy(argv0, cmd, wordbreak - cmd);
         argv0[wordbreak - cmd] = '\0';
+    } else if (!strncasecmp(cmd, "mcr ", 4)) {
+        fastpath = true;
+        argv0[0] = '$';
+        wordbreak = strpbrk(cmd + 4, " \t");
+        if (!wordbreak) wordbreak = cmd + strlen(cmd);
+        strncpy(argv0 + 1, cmd + 4, wordbreak - cmd - 4);
+        argv0[wordbreak - cmd - 3] = '\0';
     } else if (*cmd == '@') {
         /* Don't try to exec scripts */
     } else if (*cmd == '/' || strpbrk(cmd, ":<[.;") < wordbreak) {
@@ -4723,7 +4764,6 @@ Perl_my_popen(pTHX_ const char *cmd, const char *mode)
     PERL_ARGS_ASSERT_MY_POPEN;
     TAINT_ENV();
     TAINT_PROPER("popen");
-    PERL_FLUSHALL_FOR_CHILD;
     return safe_popen(aTHX_ cmd,mode,&sts);
 }
 
@@ -9378,6 +9418,12 @@ mp_getredirection(pTHX_ int *ac, char ***av)
     int			cmargc = 0;    	/* Piped Command Arg Count  */
     char		**cmargv = NULL;/* Piped Command Arg Vector */
 
+#if 0
+    PerlIO_printf(Perl_debug_log, "Original arglist:\n");
+    for (j = 0; j < argc;  ++j)
+        PerlIO_printf(Perl_debug_log, "argv[%d] = '%s'\n", j, argv[j]);
+#endif
+
     /*
      * First handle the case where the last thing on the line ends with
      * a '&'.  This indicates the desire for the command to be run in a
@@ -9504,7 +9550,8 @@ mp_getredirection(pTHX_ int *ac, char ***av)
             }
         pipe_and_fork(aTHX_ cmargv);
         }
-        
+
+#if 0
     /* Check for input from a pipe (mailbox) */
 
     if (in == NULL && 1 == isapipe(0))
@@ -9536,6 +9583,8 @@ mp_getredirection(pTHX_ int *ac, char ***av)
             exit(vaxc$errno);
             }
         }
+#endif
+
     if ((in != NULL) && (NULL == freopen(in, "r", stdin, "mbc=32", "mbf=2")))
         {
         fprintf(stderr,"Can't open input file %s as stdin",in);
@@ -9571,6 +9620,13 @@ mp_getredirection(pTHX_ int *ac, char ***av)
     PerlIO_printf(Perl_debug_log, "Arglist:\n");
     for (j = 0; j < *ac;  ++j)
         PerlIO_printf(Perl_debug_log, "argv[%d] = '%s'\n", j, argv[j]);
+#endif
+#if 0
+    char getnamebuf[VMS_MAXRSS];
+    for (int j = 0; j < 3; j++) {
+        getname(j, getnamebuf);
+        fprintf(stderr, "getname(%d) = '%s'\n", j, getnamebuf);
+    }
 #endif
    /* Clear errors we may have hit expanding wildcards, so they don't
       show up in Perl's $! later */
@@ -11179,12 +11235,12 @@ Perl_vms_do_exec(pTHX_ const char *cmd)
 }  /* end of vms_do_exec() */
 /*}}}*/
 
-int do_spawn2(pTHX_ const char *, int);
+/* int do_spawn2(pTHX_ const char *, int); */
 
 int
 Perl_do_aspawn(pTHX_ SV* really, SV** mark, SV** sp)
 {
-  unsigned int sts;
+  int sts = SS$_NORMAL;
   char * cmd;
   int flags = 0;
 
@@ -11207,7 +11263,7 @@ Perl_do_aspawn(pTHX_ SV* really, SV** mark, SV** sp)
 
     ENTER;
     cmd = setup_argstr(aTHX_ really, mark, sp);
-    sts = do_spawn2(aTHX_ cmd, flags);
+    safe_popen(aTHX_ cmd, flags ? "n" : "nW", &sts);
     LEAVE;
     /* pp_sys will clean up cmd */
     return sts;
@@ -11223,7 +11279,9 @@ Perl_do_spawn(pTHX_ char* cmd)
 {
     PERL_ARGS_ASSERT_DO_SPAWN;
 
-    return do_spawn2(aTHX_ cmd, 0);
+    int sts = -1;
+    safe_popen(aTHX_ cmd, "nW", &sts);
+    return sts;
 }
 /*}}}*/
 
@@ -11233,10 +11291,13 @@ Perl_do_spawn_nowait(pTHX_ char* cmd)
 {
     PERL_ARGS_ASSERT_DO_SPAWN_NOWAIT;
 
-    return do_spawn2(aTHX_ cmd, CLI$M_NOWAIT);
+    int sts = -1;
+    safe_popen(aTHX_ cmd, "n", &sts);
+    return sts; /* returns the pid */
 }
 /*}}}*/
 
+#if 0
 /* {{{int do_spawn2(char *cmd) */
 int
 do_spawn2(pTHX_ const char *cmd, int flags)
@@ -11294,6 +11355,7 @@ do_spawn2(pTHX_ const char *cmd, int flags)
   return sts;
 }  /* end of do_spawn2() */
 /*}}}*/
+#endif
 
 #ifdef VMS_WRAP_SOCKETS
 
@@ -11396,6 +11458,9 @@ my_fwrite(const void *src, size_t itmsz, size_t nitm, FILE *dest)
 }  /* end of my_fwrite() */
 /*}}}*/
 
+#endif /* VMS_WRAP_SOCKETS */
+
+#ifdef VMS_FLUSH_TO_DISK
 /*{{{ int my_flush(FILE *fp)*/
 int
 Perl_my_flush(pTHX_ FILE *fp)
@@ -11418,8 +11483,7 @@ Perl_my_flush(pTHX_ FILE *fp)
     return res;
 }
 /*}}}*/
-
-#endif /* VMS_WRAP_SOCKETS */
+#endif /* VMS_FLUSH_TO_DISK */
 
 /* fgetname() is not returning the correct file specifications when
  * decc_filename_unix_report mode is active.  So we have to have it
@@ -14173,9 +14237,10 @@ vmsperl_set_features(void)
     set_feature_default("DECC$EFS_CHARSET", 1);
 
     /* Set UNIX-style vfork()/execv() behavior */
-    set_feature_default("DECC$EXEC_FILEATTR_INHERITANCE", 1);
+    set_feature_default("DECC$EXEC_FILEATTR_INHERITANCE", 2);
     set_feature_default("DECC$EXIT_AFTER_FAILED_EXEC", 1);
     set_feature_default("DECC$STREAM_PIPE", 1);
+    set_feature_default("DECC$STDIO_CTX_EOL", 1);
 
    /* If POSIX root doesn't exist or nothing has set it explicitly, we disable it,
     * which confusingly means enabling the feature.  For some reason only the default
